@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contador JSON</title>
+  <style>body{font:17px system-ui;max-width:600px;margin:8vh auto;padding:24px;color:#173046}label{display:block;margin:16px 0 6px}input{font:inherit;padding:10px;width:100%;box-sizing:border-box}button{font:inherit;padding:10px 16px;margin:16px 8px 0 0}#count{font-size:72px;font-weight:750;margin:20px 0}#status{color:#587080}</style>
+</head>
+<body>
+  <h1>Contador</h1>
+  <p>Este exemplo usa um banco JSON separado. Funciona aberto como arquivo local ou publicado como site.</p>
+  <label for="endpoint">Endereço do banco</label>
+  <input id="endpoint" type="url" placeholder="http://localhost:8080/api/db-access/...">
+  <label for="key">Chave de acesso</label>
+  <input id="key" type="password" autocomplete="off" placeholder="Cole a chave fornecida pelo proprietário">
+  <button id="connect">Conectar ao banco</button>
+  <div id="count">—</div>
+  <button id="increment" disabled>Somar 1</button>
+  <p id="status" role="status">Conecte um banco para começar.</p>
+  <script src="app.js"></script>
+</body>
+</html>

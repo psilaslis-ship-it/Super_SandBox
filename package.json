@@ -1,0 +1,21 @@
+{
+  "name": "super-sandbox",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "busboy": "^1.6.0",
+    "yauzl": "^3.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "yazl": "^3.3.1"
+  }
+}

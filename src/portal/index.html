@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c1421">
+  <title>Super Sandbox</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">S</span><span>Super Sandbox</span></div>
+    <button id="logout" class="quiet-button" type="button" hidden>Sair</button>
+  </header>
+
+  <main>
+    <section id="auth-panel" class="auth-panel" hidden>
+      <span class="eyebrow">ACESSO AO PORTAL</span>
+      <h1 id="auth-title">Entrar</h1>
+      <p id="auth-description">Entre para gerenciar bancos de dados e aplicações.</p>
+      <form id="auth-form">
+        <label for="password">Senha</label>
+        <input id="password" type="password" autocomplete="current-password" minlength="12" required>
+        <label id="confirm-label" for="confirm-password" hidden>Confirme a senha</label>
+        <input id="confirm-password" type="password" autocomplete="new-password" hidden>
+        <button id="auth-button" type="submit">Entrar</button>
+        <p id="auth-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <div id="dashboard" hidden>
+      <section class="intro">
+        <div class="eyebrow"><span class="live-dot"></span> WORKSPACE</div>
+        <h1>Dados primeiro.<br><em>Aplicação depois.</em></h1>
+        <p>Cadastre um JSON, entregue ao Claude Code o endereço do banco e publique o site quando estiver pronto.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="databases-title">
+        <div class="panel-heading"><span class="section-number">01 / BANCO DE DADOS</span><h2 id="databases-title">Cadastrar JSON</h2></div>
+        <form id="database-form" class="upload-form">
+          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Escolher arquivo JSON</strong><small>Até 10 MB · salvo no volume Docker</small></label>
+          <input id="database-file" type="file" accept=".json,application/json" required>
+          <div class="form-bottom"><span id="database-status" class="status" role="status" aria-live="polite">O arquivo fica separado do ZIP da aplicação.</span><button type="submit">Cadastrar banco</button></div>
+        </form>
+        <div id="secret-result" class="secret-result" hidden>
+          <div class="secret-heading"><strong id="secret-title">Chave criada</strong><span>Mostrada somente agora. Guarde em local seguro.</span></div>
+          <div class="copy-field"><code id="secret-token"></code><button id="copy-token" type="button">Copiar chave</button></div>
+        </div>
+        <div class="subheading"><h3>Bancos cadastrados</h3><span id="database-count"></span></div>
+        <div id="database-list" class="record-list"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="prompt-title">
+        <div class="panel-heading"><span class="section-number">02 / INTEGRAÇÃO</span><h2 id="prompt-title">Instrução para o Claude Code</h2></div>
+        <p class="section-copy">Escolha um banco para gerar a instrução. Ela inclui o endereço público da API, sem incluir a chave privada.</p>
+        <label for="prompt-database">Banco de dados</label>
+        <select id="prompt-database"><option value="">Selecione um banco</option></select>
+        <textarea id="claude-prompt" readonly spellcheck="false" placeholder="Cadastre um JSON para gerar a instrução."></textarea>
+        <button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instrução</button>
+      </section>
+
+      <section class="panel" aria-labelledby="upload-title">
+        <div class="panel-heading"><span class="section-number">03 / APLICAÇÃO</span><h2 id="upload-title">Publicar site</h2></div>
+        <form id="upload-form" class="upload-form">
+          <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Escolher ZIP do site</strong><small>HTML, CSS, JavaScript e recursos locais · até 50 MB · sem db_global</small></label>
+          <input id="zip-file" type="file" accept=".zip,application/zip" required>
+          <div class="form-bottom"><span id="upload-status" class="status" role="status" aria-live="polite">O site já deve conter o endereço do banco no código.</span><button type="submit">Publicar aplicação</button></div>
+        </form>
+        <div id="upload-result" class="result" hidden><strong id="result-name"></strong><div class="copy-field"><a id="result-url" target="_blank" rel="noopener"></a><button id="copy-result" type="button">Copiar URL</button></div></div>
+        <div class="subheading"><h3>Aplicações publicadas</h3></div>
+        <div id="apps-list" class="record-list"></div>
+      </section>
+    </div>
+  </main>
+  <footer>Super Sandbox <span>·</span> JSONs e aplicações persistem no volume Docker.</footer>
+</body>
+</html>
