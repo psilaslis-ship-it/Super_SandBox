@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { importJsonFile, StoreError } from '../src/mysql-store.js';
+import { importJsonFile } from '../src/mysql-store.js';
 
 async function inspect(value) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'ss-import-'));
@@ -40,12 +40,14 @@ test('importador preserva listas, objetos, escalares, grupos vazios e ordem', as
   assert.deepEqual(scalar.groups[0].records, ['texto']);
 });
 
-test('importador rejeita item maior que 16 MB antes de publicar', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'ss-import-limit-'));
+test('importador aceita item JSON maior que 16 MB', async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'ss-import-large-'));
   const file = path.join(dir, 'data.json');
   try {
     await writeFile(file, JSON.stringify({ item: 'x'.repeat(16 * 1024 * 1024) }));
-    await assert.rejects(importJsonFile(file, async name => name, async () => {}),
-      error => error instanceof StoreError && error.status === 413);
+    let recordBytes = 0;
+    const result = await importJsonFile(file, async name => name, async (_group, body) => { recordBytes = Buffer.byteLength(body); });
+    assert.equal(result.records, 1);
+    assert.ok(recordBytes > 16 * 1024 * 1024);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

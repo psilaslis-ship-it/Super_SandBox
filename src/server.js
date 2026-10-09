@@ -52,7 +52,7 @@ const mysqlPassword = process.env.MYSQL_PASSWORD_FILE
 const mysqlStore = createMysqlStore(process.env.MYSQL_HOST ? {
   host: process.env.MYSQL_HOST, port: process.env.MYSQL_PORT,
   user: process.env.MYSQL_USER || 'sandbox', password: mysqlPassword,
-  database: process.env.MYSQL_DATABASE || 'sandbox',
+  database: process.env.MYSQL_DATABASE || 'sandbox', maxRecordBytes: maxJsonBytes,
 } : null);
 const maxEntries = 2000;
 const sessions = new Map();
@@ -696,7 +696,7 @@ async function databaseAccess(req, res, pathname) {
         return json(res, 200, await store.sqlRows(id, tableName, cursor, limit), cors);
       }
       if (tableName && suffix.endsWith('/rows') && req.method === 'POST') {
-        const body = await readBody(req, 16 * 1024 * 1024);
+        const body = await readBody(req, maxJsonBytes);
         return json(res, 201, await store.addSqlRow(id, tableName, parseJson(body)), cors);
       }
       if (tableName && sqlRecordId && req.method === 'GET') {
@@ -705,7 +705,7 @@ async function databaseAccess(req, res, pathname) {
       }
       if (tableName && sqlRecordId && req.method === 'PUT') {
         const item = await store.updateSqlRow(id, tableName, sqlRecordId,
-          parseJson(await readBody(req, 16 * 1024 * 1024)), req.headers['if-match']);
+          parseJson(await readBody(req, maxJsonBytes)), req.headers['if-match']);
         return json(res, 200, item, { ...cors, ETag: item.etag });
       }
       if (tableName && sqlRecordId && req.method === 'DELETE') {
@@ -734,7 +734,7 @@ async function databaseAccess(req, res, pathname) {
         return json(res, 200, await store.records(id, collectionId, cursor, limit), cors);
       }
       if (collectionId && suffix.endsWith('/records') && req.method === 'POST') {
-        const body = await readBody(req, 16 * 1024 * 1024);
+        const body = await readBody(req, maxJsonBytes);
         parseJson(body);
         return json(res, 201, await store.addRecord(id, collectionId, body.toString('utf8')), cors);
       }
@@ -743,7 +743,7 @@ async function databaseAccess(req, res, pathname) {
         return json(res, 200, item, { ...cors, ETag: item.etag });
       }
       if (collectionId && recordId && req.method === 'PUT') {
-        const body = await readBody(req, 16 * 1024 * 1024);
+        const body = await readBody(req, maxJsonBytes);
         parseJson(body);
         const item = await store.updateRecord(id, collectionId, recordId, body.toString('utf8'), req.headers['if-match']);
         return json(res, 200, item, { ...cors, ETag: item.etag });

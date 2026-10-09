@@ -37,7 +37,7 @@ O ZIP **não deve conter** a chave, o JSON nem a pasta `db_global`. O site deve 
 
 O importador lê o JSON em fluxo e preserva os valores existentes. Cada propriedade da raiz vira um grupo de dados: arrays geram um registro por item; objetos e valores únicos geram um registro. Arrays ou valores na própria raiz também são aceitos. O portal registra o formato original da raiz e a ordem dos grupos para exportar novamente um JSON equivalente. O download pode refletir edições posteriores feitas pelo site.
 
-O limite de upload é `MAX_JSON_MB` (padrão **512 MB**). Cada item individual pode ter até **16 MB**; o JSON pode conter até **200 grupos** e **1 milhão de itens**. Um objeto profundamente aninhado que exceda 16 MB em um único item precisa ser dividido antes da importação. A API da opção MySQL usa páginas de até 100 itens e gravações por item, para evitar ler e salvar o arquivo inteiro a cada alteração.
+O limite de upload é `MAX_JSON_MB` (padrão **512 MB**). Cada item individual pode ter até o limite configurado para o arquivo. O MySQL é configurado com pacote máximo de 1 GB para aceitar esses itens; o próprio MySQL não permite que um documento JSON exceda esse limite. O JSON pode conter até **200 grupos** e **1 milhão de itens**. A API da opção MySQL usa páginas de até 100 itens e gravações por item, para evitar ler e salvar o arquivo inteiro a cada alteração.
 
 Em processadores antigos sem suporte a `x86-64-v2`, a imagem padrão `mysql:8.4` pode encerrar com erro da glibc. Para testes locais nesse hardware, defina `MYSQL_IMAGE=mysql:8.4.0-oraclelinux8` no `.env`; essa tag antiga não recebe atualizações e não deve ser usada em produção. Consulte a [limitação de CPU documentada pela imagem oficial](https://github.com/docker-library/mysql/issues/1055).
 

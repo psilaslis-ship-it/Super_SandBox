@@ -19,6 +19,7 @@ services:
       MYSQL_PASSWORD_FILE: /run/mysql-secrets/app_password
       MYSQL_USER: sandbox
       MYSQL_DATABASE: sandbox
+    command: ["--max-allowed-packet=1G"]
     volumes:
       - mysql_data:/var/lib/mysql
       - mysql_secrets:/run/mysql-secrets:ro

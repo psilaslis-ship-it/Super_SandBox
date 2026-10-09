@@ -12,9 +12,9 @@ export class StoreError extends Error {
 }
 
 const newId = () => randomBytes(8).toString('hex');
-const recordLimit = 16 * 1024 * 1024;
+const defaultRecordLimit = 512 * 1024 * 1024;
 
-export async function importJsonFile(file, onCollection, onRecord) {
+export async function importJsonFile(file, onCollection, onRecord, recordLimit = defaultRecordLimit) {
   let root = 'waiting';
   let property = null;
   let collection = null;
@@ -43,7 +43,8 @@ export async function importJsonFile(file, onCollection, onRecord) {
     if (!assembler?.done) return;
     const value = assembler.current;
     const body = JSON.stringify(value);
-    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413, 'Um item do JSON excede 16 MB. Divida esse item antes de importar.');
+    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413,
+      `Um item do JSON excede o limite de ${Math.floor(recordLimit / 1024 / 1024)} MB definido em MAX_JSON_MB.`);
     if (++records > 1_000_000) throw new StoreError(400, 'O JSON contém mais de um milhão de itens.');
     await onRecord(collection, body);
     assembler = null;
@@ -91,6 +92,7 @@ export async function importJsonFile(file, onCollection, onRecord) {
 
 export function createMysqlStore(config) {
   if (!config?.host) return null;
+  const recordLimit = Number(config.maxRecordBytes || defaultRecordLimit);
   const pool = mysql.createPool({
     host: config.host, port: Number(config.port || 3306),
     user: config.user, password: config.password, database: config.database,
@@ -166,7 +168,8 @@ export function createMysqlStore(config) {
 
   async function addRecord(dbId, collectionId, body) {
     const group = await collection(dbId, collectionId);
-    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413, 'Um item pode ter no máximo 16 MB.');
+    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413,
+      `Um item excede o limite de ${Math.floor(recordLimit / 1024 / 1024)} MB definido em MAX_JSON_MB.`);
     if (group.kind === 'single') {
       const [rows] = await pool.execute('SELECT COUNT(*) AS count FROM ss_records WHERE db_id=? AND collection_id=?',
         [dbId, collectionId]);
@@ -198,7 +201,8 @@ export function createMysqlStore(config) {
   }
 
   async function updateRecord(dbId, collectionId, recordId, body, etag) {
-    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413, 'Um item pode ter no máximo 16 MB.');
+    if (Buffer.byteLength(body) > recordLimit) throw new StoreError(413,
+      `Um item excede o limite de ${Math.floor(recordLimit / 1024 / 1024)} MB definido em MAX_JSON_MB.`);
     const version = /^"([1-9]\d*)"$/.exec(etag || '')?.[1];
     if (!version) throw new StoreError(428, 'Leia o item antes de salvar e informe o ETag em If-Match.');
     await ready();
@@ -384,7 +388,7 @@ export function createMysqlStore(config) {
           if (batch.length >= 100 || bytes + size > 4 * 1024 * 1024) await flush();
           batch.push([dbId, group.id, newId(), body]);
           bytes += size;
-        });
+        }, recordLimit);
       await flush();
       return summary;
     } catch (error) { await deleteDatabase(dbId).catch(cleanupError => console.error('Falha na limpeza da importação:', cleanupError)); throw error; }
