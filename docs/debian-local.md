@@ -63,6 +63,8 @@ Troque `192.168.1.50` pelo IP real. No navegador de outro computador da mesma re
 
 O `.env` está no `.gitignore` e não acompanha `git pull` ou `git push`. Se o IP do Debian mudar, atualize os dois valores e execute `sudo docker compose up -d` novamente. O endereço do banco exibido no portal também passará a usar esse IP. Sites já gerados com `localhost` fixo precisam dessa referência atualizada e de um novo ZIP. No modo LAN, os recursos do site devem usar caminhos relativos, pois ele é servido sob `/apps/<id>/`.
 
+O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. O valor aparece na tela de cadastro. Reserve espaço livre no volume para o arquivo atual e uma cópia temporária durante as gravações.
+
 O tráfego HTTP da rede local não é criptografado. Use este modo em uma rede confiável para testes. Para acesso fora dela ou com dados sensíveis, configure HTTPS antes de compartilhar chaves.
 
 ## 4. Alternativa: túnel SSH sem abrir portas na rede

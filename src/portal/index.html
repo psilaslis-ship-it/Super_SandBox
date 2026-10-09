@@ -39,7 +39,7 @@
       <section class="panel" aria-labelledby="databases-title">
         <div class="panel-heading"><span class="section-number">01 / BANCO DE DADOS</span><h2 id="databases-title">Cadastrar JSON</h2></div>
         <form id="database-form" class="upload-form">
-          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Escolher arquivo JSON</strong><small>Até 10 MB · salvo no volume Docker</small></label>
+          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Escolher arquivo JSON</strong><small id="database-file-limit">Limite configurado pelo servidor · salvo no volume Docker</small></label>
           <input id="database-file" type="file" accept=".json,application/json" required>
           <div class="form-bottom"><span id="database-status" class="status" role="status" aria-live="polite">O arquivo fica separado do ZIP da aplicação.</span><button type="submit">Cadastrar banco</button></div>
         </form>

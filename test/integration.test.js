@@ -118,6 +118,9 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     const saved = await http(port, 'localhost', 'PUT', dbPath, '{"valor":2}', { ...auth, 'If-Match': read.headers.etag, 'Content-Type': 'application/json' });
     assert.equal(saved.status, 200);
     assert.equal((await http(port, 'localhost', 'GET', dbPath, null, auth)).body, '{"valor":2}');
+    assert.equal((await http(port, 'localhost', 'PUT', dbPath, '{',
+      { ...auth, 'If-Match': saved.headers.etag, 'Content-Type': 'application/json' })).status, 400);
+    assert.equal((await http(port, 'localhost', 'GET', dbPath, null, auth)).body, '{"valor":2}');
     assert.equal((await http(port, 'localhost', 'PUT', dbPath, '{"valor":3}', { ...auth, 'If-Match': read.headers.etag })).status, 409);
     const keyResponse = await http(port, 'localhost', 'POST', `/api/databases/${database.id}/keys`,
       JSON.stringify({ label: 'Leitor', permission: 'read' }), { Cookie: ownerCookie, Origin: portalOrigin, 'Content-Type': 'application/json' });
@@ -146,6 +149,23 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     assert.equal((await http(port, appHost, 'GET', '/index.html')).body, '<h1>Site original</h1><script src="app.js"></script>');
     assert.equal((await http(port, appHost, 'GET', '/db_global/dados.json')).status, 403);
     assert.equal((await http(port, appHost, 'PUT', '/db_global/dados.json', '{}')).status, 405);
+
+    const largeBody = JSON.stringify({ texto: 'x'.repeat(11 * 1024 * 1024) });
+    assert.ok(Buffer.byteLength(largeBody) > 10 * 1024 * 1024);
+    const largeUpload = await upload(port, '/api/databases', 'grande.json', Buffer.from(largeBody), ownerCookie);
+    assert.equal(largeUpload.status, 201, JSON.stringify(largeUpload.body));
+    const largePath = `/api/db-access/${largeUpload.body.database.id}`;
+    const largeAuth = { Authorization: `Bearer ${largeUpload.body.token}` };
+    const largeRead = await http(port, 'localhost', 'GET', largePath, null, largeAuth);
+    assert.equal(largeRead.status, 200);
+    assert.equal(largeRead.body, largeBody);
+    const largeUpdate = JSON.stringify({ texto: 'y'.repeat(11 * 1024 * 1024) });
+    const largeSave = await http(port, 'localhost', 'PUT', largePath, largeUpdate,
+      { ...largeAuth, 'If-Match': largeRead.headers.etag, 'Content-Type': 'application/json' });
+    assert.equal(largeSave.status, 200, largeSave.body);
+    assert.equal((await http(port, 'localhost', 'GET', largePath, null, largeAuth)).body, largeUpdate);
+    assert.equal((await http(port, 'localhost', 'GET', `/api/databases/${largeUpload.body.database.id}/download`,
+      null, { Cookie: ownerCookie })).body, largeUpdate);
     await stop();
     await start();
     assert.equal((await http(port, 'localhost', 'GET', dbPath, null, auth)).body, '{"valor":2}');
@@ -162,7 +182,7 @@ test('modo LAN retorna URLs por IP e separa portal e aplicações por porta', as
   const child = spawn(process.execPath, ['src/server.js'], {
     cwd: project,
     env: { ...process.env, DATA_DIR: dataDir, PORT: String(port), PUBLIC_PORT: String(port),
-      APP_PORT: String(appPort), PUBLIC_APP_PORT: String(appPort), PUBLIC_HOST: ip },
+      APP_PORT: String(appPort), PUBLIC_APP_PORT: String(appPort), PUBLIC_HOST: ip, MAX_JSON_MB: '1' },
     stdio: 'pipe',
   });
   try {
@@ -180,6 +200,10 @@ test('modo LAN retorna URLs por IP e separa portal e aplicações por porta', as
       { Origin: origin, 'Content-Type': 'application/json' });
     assert.equal(setup.status, 201);
     const cookie = setup.headers['set-cookie'][0].split(';')[0];
+    assert.equal(JSON.parse((await http(port, ip, 'GET', '/api/session')).body).maxJsonMb, 1);
+    const tooLarge = await upload(port, '/api/databases', 'grande.json',
+      Buffer.from(JSON.stringify({ texto: 'x'.repeat(1024 * 1024) })), cookie);
+    assert.equal(tooLarge.status, 413);
     const database = await upload(port, '/api/databases', 'dados.json', Buffer.from('{"valor":1}'), cookie);
     assert.equal(database.status, 201);
     assert.equal(database.body.database.url, `${origin}/api/db-access/${database.body.database.id}`);
@@ -200,6 +224,12 @@ test('modo LAN retorna URLs por IP e separa portal e aplicações por porta', as
       { Authorization: `Bearer ${database.body.token}`, Origin: `http://${ip}:${appPort}` });
     assert.equal(db.status, 200);
     assert.equal(db.headers['access-control-allow-origin'], '*');
+    const tooLargePut = await http(port, ip, 'PUT', `/api/db-access/${database.body.database.id}`,
+      JSON.stringify({ texto: 'x'.repeat(1024 * 1024) }),
+      { Authorization: `Bearer ${database.body.token}`, 'If-Match': db.headers.etag,
+        'Content-Type': 'application/json', Origin: `http://${ip}:${appPort}` });
+    assert.equal(tooLargePut.status, 413);
+    assert.equal(tooLargePut.headers['access-control-allow-origin'], '*');
   } finally {
     if (child.exitCode === null) {
       child.kill();

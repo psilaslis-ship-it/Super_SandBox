@@ -41,7 +41,7 @@ O endereço de cada banco tem o formato `http://HOST:8080/api/db-access/<id>`, o
 | Ler | `GET`, cabeçalho `Authorization: Bearer <chave>` | JSON atual e cabeçalho `ETag` |
 | Salvar | `PUT`, cabeçalhos `Authorization`, `Content-Type: application/json` e `If-Match: <ETag>`; corpo com o JSON completo | Confirmação e novo `ETag` |
 
-Antes de salvar, leia o banco e guarde seu `ETag`. Se outra pessoa o alterar, o `PUT` retorna **409**: recarregue e resolva o conflito. Chave inválida ou revogada retorna **401**; uma chave somente de leitura recebe **403** ao tentar salvar. O limite do JSON é 10 MB. As gravações são atômicas no volume Docker.
+Antes de salvar, leia o banco e guarde seu `ETag`. Se outra pessoa o alterar, o `PUT` retorna **409**: recarregue e resolva o conflito. Chave inválida ou revogada retorna **401**; uma chave somente de leitura recebe **403** ao tentar salvar. Upload, leitura, download e gravação são feitos em fluxo no servidor; o limite padrão por JSON é **512 MB**, ajustável por `MAX_JSON_MB` no `.env` do Debian. As gravações são atômicas no volume Docker. A aplicação no navegador ainda precisa de memória suficiente para carregar e manipular o JSON inteiro se usar `response.json()`.
 
 O exemplo em `examples/contador` pede o endereço e a chave em tempo de execução. Para criar seu ZIP de site no PowerShell:
 

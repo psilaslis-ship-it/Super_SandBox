@@ -5,9 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
+import { Transform } from 'node:stream';
 import { isIP } from 'node:net';
 import Busboy from 'busboy';
 import yauzl from 'yauzl';
+import { verifyFile } from 'stream-json/file/verifier.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const portalDir = path.join(here, 'portal');
@@ -27,11 +29,23 @@ const publicPort = process.env.PUBLIC_PORT || String(port);
 const publicAppPort = process.env.PUBLIC_APP_PORT || String(appPort);
 const maxZipBytes = 50 * 1024 * 1024;
 const maxExtractedBytes = 250 * 1024 * 1024;
-const maxJsonBytes = 10 * 1024 * 1024;
+const maxJsonMb = Number(process.env.MAX_JSON_MB || 512);
+if (!Number.isSafeInteger(maxJsonMb) || maxJsonMb < 1 || !Number.isSafeInteger(maxJsonMb * 1024 * 1024)) {
+  throw new Error('MAX_JSON_MB deve ser um inteiro positivo válido.');
+}
+const maxJsonBytes = maxJsonMb * 1024 * 1024;
 const maxEntries = 2000;
 const sessions = new Map();
 const loginFailures = new Map();
 const dbLocks = new Map();
+const dbCors = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-Match',
+  'Access-Control-Expose-Headers': 'ETag',
+  'Access-Control-Allow-Private-Network': 'true',
+  'Cache-Control': 'no-store',
+};
 
 const mime = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
@@ -205,6 +219,7 @@ async function receiveFile(req, destination, extension, maxBytes) {
   return new Promise((resolve, reject) => {
     let fileSeen = false;
     let failed = false;
+    let deferredError = null;
     let originalName = '';
     let outputDone = Promise.resolve();
     const fail = err => { if (!failed) { failed = true; reject(err); } };
@@ -216,7 +231,7 @@ async function receiveFile(req, destination, extension, maxBytes) {
       fileSeen = true;
       originalName = path.basename(info.filename || `arquivo${extension}`);
       if (!originalName.toLowerCase().endsWith(extension)) { stream.resume(); return fail(new HttpError(400, `Selecione um arquivo ${extension}.`)); }
-      stream.on('limit', () => fail(new HttpError(413, `O arquivo excede ${Math.round(maxBytes / 1024 / 1024)} MB.`)));
+      stream.on('limit', () => { deferredError = new HttpError(413, `O arquivo excede ${Math.round(maxBytes / 1024 / 1024)} MB.`); });
       const output = fs.createWriteStream(destination, { flags: 'wx' });
       outputDone = new Promise((done, outputFailed) => {
         output.on('finish', done);
@@ -233,7 +248,7 @@ async function receiveFile(req, destination, extension, maxBytes) {
     parser.on('close', async () => {
       if (!failed) {
         if (!fileSeen) return fail(new HttpError(400, 'O arquivo não foi recebido por completo.'));
-        try { await outputDone; resolve(originalName); }
+        try { await outputDone; if (deferredError) fail(deferredError); else resolve(originalName); }
         catch (err) { fail(err); }
       }
     });
@@ -284,6 +299,32 @@ async function atomicWrite(target, body) {
   finally { await fsp.rm(temp, { force: true }); }
 }
 
+async function validateJsonFile(file) {
+  try { await verifyFile(file); }
+  catch { throw new HttpError(400, 'O conteúdo enviado não é um JSON válido.'); }
+}
+
+async function fileEtag(file) {
+  const hash = createHash('sha256');
+  for await (const chunk of fs.createReadStream(file)) hash.update(chunk);
+  return `"${hash.digest('hex')}"`;
+}
+
+async function receiveJsonBody(req, destination) {
+  if (Number(req.headers['content-length']) > maxJsonBytes) throw new HttpError(413, `O JSON excede ${maxJsonMb} MB.`);
+  let size = 0;
+  let exceeded = false;
+  const limiter = new Transform({
+    transform(chunk, encoding, done) {
+      size += chunk.length;
+      if (size > maxJsonBytes) exceeded = true;
+      done(null, exceeded ? undefined : chunk);
+    },
+  });
+  await pipeline(req, limiter, fs.createWriteStream(destination, { flags: 'wx' }));
+  if (exceeded) throw new HttpError(413, `O JSON excede ${maxJsonMb} MB.`);
+}
+
 async function withDbLock(id, work) {
   const previous = dbLocks.get(id) || Promise.resolve();
   let release;
@@ -302,7 +343,7 @@ function parseJson(body) {
 
 async function authRoute(req, res, pathname) {
   if (pathname === '/api/session' && req.method === 'GET') {
-    return json(res, 200, { setupRequired: !(await ownerRecord()), authenticated: !!currentSession(req) });
+    return json(res, 200, { setupRequired: !(await ownerRecord()), authenticated: !!currentSession(req), maxJsonMb });
   }
   if (pathname === '/api/setup' && req.method === 'POST') {
     if (await ownerRecord()) throw new HttpError(409, 'O proprietário já foi configurado.');
@@ -369,8 +410,7 @@ async function uploadDatabase(req, res) {
   const tempDir = path.join(tmpDir, id);
   try {
     const filename = await receiveFile(req, tempFile, '.json', maxJsonBytes);
-    const body = await fsp.readFile(tempFile);
-    parseJson(body);
+    await validateJsonFile(tempFile);
     const token = randomBytes(32).toString('base64url');
     const now = new Date().toISOString();
     const meta = { id, name: filename, createdAt: now, keys: [{
@@ -378,10 +418,8 @@ async function uploadDatabase(req, res) {
       hash: hashToken(token), createdAt: now,
     }] };
     await fsp.mkdir(tempDir);
-    await Promise.all([
-      fsp.writeFile(path.join(tempDir, 'data.json'), body),
-      fsp.writeFile(path.join(tempDir, 'meta.json'), JSON.stringify(meta, null, 2)),
-    ]);
+    await fsp.rename(tempFile, path.join(tempDir, 'data.json'));
+    await fsp.writeFile(path.join(tempDir, 'meta.json'), JSON.stringify(meta, null, 2));
     await fsp.rename(tempDir, path.join(databasesDir, id));
     return json(res, 201, { database: publicDatabase(meta), token });
   } finally {
@@ -398,9 +436,13 @@ async function databaseManagement(req, res, pathname) {
   const { dir, meta } = await getDatabase(id);
   if (!action && req.method === 'GET') return json(res, 200, publicDatabase(meta));
   if (action === 'download' && req.method === 'GET') {
-    const body = await fsp.readFile(path.join(dir, 'data.json'));
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${id}.json"`, 'Content-Length': body.length, 'Cache-Control': 'no-store' });
-    return res.end(body);
+    const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
+    try {
+      const stat = await handle.stat();
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': `attachment; filename="${id}.json"`, 'Content-Length': stat.size, 'Cache-Control': 'no-store' });
+      await pipeline(handle.createReadStream({ start: 0, autoClose: false }), res);
+    } finally { await handle.close(); }
+    return;
   }
   if (action === 'keys' && !keyId && req.method === 'POST') {
     const { label, permission } = parseJson(await readBody(req, 65536));
@@ -429,14 +471,7 @@ async function databaseManagement(req, res, pathname) {
 async function databaseAccess(req, res, pathname) {
   const match = /^\/api\/db-access\/([a-f0-9]{16})$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
-  const cors = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-Match',
-    'Access-Control-Expose-Headers': 'ETag',
-    'Access-Control-Allow-Private-Network': 'true',
-    'Cache-Control': 'no-store',
-  };
+  const cors = dbCors;
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   if (!['GET', 'PUT'].includes(req.method)) throw new HttpError(405, 'Método não permitido.');
   const [, id] = match;
@@ -446,22 +481,32 @@ async function databaseAccess(req, res, pathname) {
   if (!key) return json(res, 401, { error: 'Chave de acesso inválida.' }, cors);
   if (req.method === 'PUT' && key.permission !== 'write') return json(res, 403, { error: 'Chave somente de leitura.' }, cors);
   if (req.method === 'GET') {
-    const body = await fsp.readFile(path.join(dir, 'data.json'));
-    const etag = `"${hashToken(body)}"`;
-    res.writeHead(200, { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length, ETag: etag, 'X-Content-Type-Options': 'nosniff' });
-    return res.end(body);
+    const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
+    try {
+      const stat = await handle.stat();
+      const hash = createHash('sha256');
+      for await (const chunk of handle.createReadStream({ start: 0, autoClose: false })) hash.update(chunk);
+      if (res.destroyed) return;
+      res.writeHead(200, { ...cors, 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': stat.size,
+        ETag: `"${hash.digest('hex')}"`, 'X-Content-Type-Options': 'nosniff' });
+      await pipeline(handle.createReadStream({ start: 0, autoClose: false }), res);
+    } finally { await handle.close(); }
+    return;
   }
   if (!req.headers['if-match']) return json(res, 428, { error: 'Leia o banco antes de salvar e envie If-Match com o ETag recebido.' }, cors);
-  const body = await readBody(req, maxJsonBytes);
-  parseJson(body);
-  return withDbLock(id, async () => {
-    const fresh = (await getDatabase(id)).meta;
-    if (!fresh.keys.some(item => item.hash === key.hash && item.permission === 'write')) return json(res, 403, { error: 'Chave revogada.' }, cors);
-    const current = await fsp.readFile(path.join(dir, 'data.json'));
-    if (req.headers['if-match'] !== `"${hashToken(current)}"`) return json(res, 409, { error: 'O banco mudou. Recarregue os dados antes de salvar.' }, cors);
-    await atomicWrite(path.join(dir, 'data.json'), body);
-    return json(res, 200, { ok: true }, { ...cors, ETag: `"${hashToken(body)}"` });
-  });
+  const temp = path.join(dir, `data.${randomBytes(6).toString('hex')}.tmp`);
+  try {
+    await receiveJsonBody(req, temp);
+    await validateJsonFile(temp);
+    const nextEtag = await fileEtag(temp);
+    return await withDbLock(id, async () => {
+      const fresh = (await getDatabase(id)).meta;
+      if (!fresh.keys.some(item => item.hash === key.hash && item.permission === 'write')) return json(res, 403, { error: 'Chave revogada.' }, cors);
+      if (req.headers['if-match'] !== await fileEtag(path.join(dir, 'data.json'))) return json(res, 409, { error: 'O banco mudou. Recarregue os dados antes de salvar.' }, cors);
+      await fsp.rename(temp, path.join(dir, 'data.json'));
+      return json(res, 200, { ok: true }, { ...cors, ETag: nextEtag });
+    });
+  } finally { await fsp.rm(temp, { force: true }); }
 }
 
 async function readBody(req, maxBytes) {
@@ -574,14 +619,17 @@ async function handler(req, res, listener = 'portal') {
 
 await Promise.all([fsp.mkdir(appsDir, { recursive: true }), fsp.mkdir(databasesDir, { recursive: true }), fsp.mkdir(tmpDir, { recursive: true })]);
 function serverFor(listener) {
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     Promise.resolve(handler(req, res, listener)).catch(err => {
     const status = err.status || 500;
     if (status === 500) console.error(err);
-    if (!res.headersSent) json(res, status, { error: status === 500 ? 'Erro interno.' : err.message });
+    if (!res.headersSent) json(res, status, { error: status === 500 ? 'Erro interno.' : err.message },
+      listener === 'portal' && req.url?.startsWith('/api/db-access/') ? dbCors : {});
     else res.destroy();
     });
   });
+  server.requestTimeout = 30 * 60 * 1000;
+  return server;
 }
 serverFor('portal').listen(port, '0.0.0.0', () => console.log(`Portal em ${portalOrigin()}`));
 if (lanMode) serverFor('apps').listen(appPort, '0.0.0.0', () => console.log(`Aplicações em ${scheme}://${publicHost}:${publicAppPort}`));

@@ -13,6 +13,7 @@ services:
       PUBLIC_SCHEME: http
       PUBLIC_PORT: "${HOST_PORT:-8080}"
       PUBLIC_APP_PORT: "${HOST_APP_PORT:-8081}"
+      MAX_JSON_MB: "${MAX_JSON_MB:-512}"
     volumes:
       - sandbox_data:/data
     restart: unless-stopped

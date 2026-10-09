@@ -246,6 +246,7 @@ $('#upload-form').addEventListener('submit', async event => {
 });
 
 api('/api/session').then(session => {
+  $('#database-file-limit').textContent = `Até ${session.maxJsonMb} MB · salvo no volume Docker`;
   if (session.authenticated) return showDashboard();
   showAuth(session.setupRequired);
 }).catch(error => { showAuth(false); $('#auth-status').textContent = error.message; });
