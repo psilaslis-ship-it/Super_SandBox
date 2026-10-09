@@ -10,6 +10,7 @@ const keyDialog = $('#key-dialog');
 let setupRequired = false;
 let databases = [];
 let visibleSecretDatabaseId = null;
+let visibleSecretKeyId = null;
 const copyLabels = new WeakMap();
 const copyTimers = new WeakMap();
 
@@ -104,15 +105,24 @@ async function copy(value, button, source) {
   copyFeedback(button, 'Use Ctrl+C');
 }
 
-function showSecret(token, title, databaseId) {
+function showSecret(token, title, databaseId, keyId) {
   $('#secret-title').textContent = title;
   $('#secret-token').textContent = token;
   visibleSecretDatabaseId = databaseId;
+  visibleSecretKeyId = keyId;
   $('#secret-result').hidden = false;
   $('#secret-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-function showNewKey(token, label) {
-  $('#key-dialog-title').textContent = `Chave criada para ${label}`;
+function hideSecretForDatabase(databaseId, keyId) {
+  if (visibleSecretDatabaseId !== databaseId || (keyId && visibleSecretKeyId !== keyId)) return;
+  $('#secret-result').hidden = true;
+  $('#secret-token').textContent = '';
+  visibleSecretDatabaseId = null;
+  visibleSecretKeyId = null;
+}
+function showKeyDialog(token, title, description) {
+  $('#key-dialog-title').textContent = title;
+  $('#key-dialog-description').textContent = description;
   $('#key-dialog-token').textContent = token;
   keyDialog.showModal();
 }
@@ -183,6 +193,7 @@ $('#logout').addEventListener('click', async () => {
     $('#secret-result').hidden = true;
     $('#secret-token').textContent = '';
     visibleSecretDatabaseId = null;
+    visibleSecretKeyId = null;
     showAuth(false);
   } catch (error) { alert(error.message); }
   finally { clearBusy(button); }
@@ -250,11 +261,7 @@ function renderDatabase(db) {
     setBusy(remove);
     try {
       await api(`/api/databases/${db.id}`, { method: 'DELETE' });
-      if (visibleSecretDatabaseId === db.id) {
-        $('#secret-result').hidden = true;
-        $('#secret-token').textContent = '';
-        visibleSecretDatabaseId = null;
-      }
+      hideSecretForDatabase(db.id);
       await loadDatabases();
       $('#database-status').textContent = `Banco ${db.name} apagado.`;
     } catch (error) { alert(error.message); }
@@ -280,7 +287,8 @@ function renderDatabase(db) {
         body: JSON.stringify({ label: label.value, permission: permission.value }),
       });
       await loadDatabases();
-      showNewKey(payload.token, payload.key.label);
+      showKeyDialog(payload.token, `Chave criada para ${payload.key.label}`,
+        'Copie e guarde esta chave. Você poderá consultá-la novamente após entrar no portal.');
     } catch (error) { alert(error.message); }
     finally { clearBusy(create); create.removeAttribute('aria-label'); }
   });
@@ -288,15 +296,41 @@ function renderDatabase(db) {
   for (const key of db.keys) {
     const row = textNode('div', '', 'key-item');
     row.append(textNode('span', `${key.label} · ${key.permission === 'write' ? 'leitura e gravação' : 'somente leitura'}`));
+    const keyActions = textNode('div', '', 'key-actions');
+    const reveal = textNode('button', key.canReveal ? 'Ver chave' : 'Gerar nova chave');
+    reveal.type = 'button';
+    reveal.addEventListener('click', async () => {
+      if (!key.canReveal && !confirm(`A chave antiga de ${key.label} não pode ser recuperada. Gerar uma nova vai invalidar a anterior. Aplicações que usam essa chave precisarão ser atualizadas. Continuar?`)) return;
+      setBusy(reveal);
+      try {
+        const action = key.canReveal ? 'reveal' : 'rotate';
+        const payload = await api(`/api/databases/${db.id}/keys/${key.id}/${action}`, { method: 'POST' });
+        if (!key.canReveal) {
+          hideSecretForDatabase(db.id, key.id);
+          await loadDatabases();
+        }
+        showKeyDialog(payload.token,
+          key.canReveal ? `Chave de ${key.label}` : `Nova chave para ${key.label}`,
+          key.canReveal
+            ? 'Copie esta chave. Ela também poderá ser consultada novamente após entrar no portal.'
+            : 'A chave anterior deixou de funcionar. Atualize os acessos que usavam a chave antiga.');
+      } catch (error) { alert(error.message); }
+      finally { clearBusy(reveal); }
+    });
     const revoke = textNode('button', 'Revogar'); revoke.type = 'button';
     revoke.addEventListener('click', async () => {
       if (!confirm(`Revogar a chave de ${key.label}? O acesso será interrompido.`)) return;
       setBusy(revoke);
-      try { await api(`/api/databases/${db.id}/keys/${key.id}`, { method: 'DELETE' }); await loadDatabases(); }
+      try {
+        await api(`/api/databases/${db.id}/keys/${key.id}`, { method: 'DELETE' });
+        hideSecretForDatabase(db.id, key.id);
+        await loadDatabases();
+      }
       catch (error) { alert(error.message); }
       finally { clearBusy(revoke); }
     });
-    row.append(revoke); keys.append(row);
+    keyActions.append(reveal, revoke);
+    row.append(keyActions); keys.append(row);
   }
   keySection.append(form, keys);
   record.append(head, endpoint, keySection);
@@ -392,7 +426,7 @@ $('#database-form').addEventListener('submit', async event => {
     const form = new FormData(); form.append('file', file);
     const payload = await api('/api/databases', { method: 'POST', body: form });
     status.textContent = 'Banco cadastrado.';
-    showSecret(payload.token, `Chave inicial de ${payload.database.name}`, payload.database.id);
+    showSecret(payload.token, `Chave inicial de ${payload.database.name}`, payload.database.id, payload.database.keys[0].id);
     uploadForm.reset(); $('#database-file-label').textContent = 'Clique ou arraste um JSON aqui';
     await loadDatabases();
     promptSelect.value = payload.database.id; updatePrompt();

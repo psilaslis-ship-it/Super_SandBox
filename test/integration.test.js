@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -100,9 +100,49 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     const { database, token } = created.body;
     assert.match(token, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(database.url, `${portalOrigin}/api/db-access/${database.id}`);
+    assert.equal(database.keys[0].canReveal, true);
+    assert.equal(JSON.stringify(database).includes('sealedToken'), false);
+    const revealInitialPath = `/api/databases/${database.id}/keys/${database.keys[0].id}/reveal`;
+    assert.equal((await http(port, 'localhost', 'POST', revealInitialPath)).status, 401);
+    assert.equal((await http(port, 'localhost', 'POST', revealInitialPath, null,
+      { Cookie: ownerCookie, Origin: `http://evil.localhost:${port}` })).status, 403);
+    const revealInitial = await http(port, 'localhost', 'POST', revealInitialPath, null,
+      { Cookie: ownerCookie, Origin: portalOrigin });
+    assert.equal(revealInitial.status, 200, revealInitial.body);
+    assert.equal(JSON.parse(revealInitial.body).token, token);
+    const encryptedMeta = await readFile(path.join(dataDir, 'databases', database.id, 'meta.json'), 'utf8');
+    assert.ok(encryptedMeta.includes('sealedToken'));
+    assert.equal(encryptedMeta.includes(token), false);
     const disposable = await upload(port, '/api/databases', 'temporario.json', Buffer.from('{"temporario":true}'), ownerCookie);
     assert.equal(disposable.status, 201);
     const disposableId = disposable.body.database.id;
+    const legacyMetaPath = path.join(dataDir, 'databases', disposableId, 'meta.json');
+    const legacyMeta = JSON.parse(await readFile(legacyMetaPath, 'utf8'));
+    delete legacyMeta.keys[0].sealedToken;
+    await writeFile(legacyMetaPath, JSON.stringify(legacyMeta));
+    const legacyKeyPath = `/api/databases/${disposableId}/keys/${legacyMeta.keys[0].id}`;
+    const listedLegacy = JSON.parse((await http(port, 'localhost', 'GET', `/api/databases/${disposableId}`, null,
+      { Cookie: ownerCookie })).body);
+    assert.equal(listedLegacy.keys[0].canReveal, false);
+    assert.equal((await http(port, 'localhost', 'GET', `/api/db-access/${disposableId}`, null,
+      { Authorization: `Bearer ${disposable.body.token}` })).status, 200);
+    assert.equal((await http(port, 'localhost', 'POST', `${legacyKeyPath}/reveal`, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).status, 409);
+    assert.equal((await http(port, 'localhost', 'POST', `${legacyKeyPath}/rotate`)).status, 401);
+    assert.equal((await http(port, 'localhost', 'POST', `${legacyKeyPath}/rotate`, null,
+      { Cookie: ownerCookie, Origin: `http://evil.localhost:${port}` })).status, 403);
+    const rotated = await http(port, 'localhost', 'POST', `${legacyKeyPath}/rotate`, null,
+      { Cookie: ownerCookie, Origin: portalOrigin });
+    assert.equal(rotated.status, 200, rotated.body);
+    assert.equal(JSON.parse(rotated.body).key.canReveal, true);
+    const replacement = JSON.parse(rotated.body).token;
+    assert.notEqual(replacement, disposable.body.token);
+    assert.equal((await http(port, 'localhost', 'GET', `/api/db-access/${disposableId}`, null,
+      { Authorization: `Bearer ${disposable.body.token}` })).status, 401);
+    assert.equal((await http(port, 'localhost', 'GET', `/api/db-access/${disposableId}`, null,
+      { Authorization: `Bearer ${replacement}` })).status, 200);
+    assert.equal(JSON.parse((await http(port, 'localhost', 'POST', `${legacyKeyPath}/reveal`, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).body).token, replacement);
     const deletePath = `/api/databases/${disposableId}`;
     assert.equal((await http(port, 'localhost', 'DELETE', deletePath)).status, 401);
     assert.equal((await http(port, 'localhost', 'DELETE', deletePath, null,
@@ -145,6 +185,10 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
       JSON.stringify({ label: 'Leitor', permission: 'read' }), { Cookie: ownerCookie, Origin: portalOrigin, 'Content-Type': 'application/json' });
     assert.equal(keyResponse.status, 201);
     const reader = JSON.parse(keyResponse.body);
+    assert.equal(reader.key.canReveal, true);
+    assert.equal(JSON.parse((await http(port, 'localhost', 'POST',
+      `/api/databases/${database.id}/keys/${reader.key.id}/reveal`, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).body).token, reader.token);
     assert.equal((await http(port, 'localhost', 'GET', dbPath, null, { Authorization: `Bearer ${reader.token}` })).status, 200);
     assert.equal((await http(port, 'localhost', 'PUT', dbPath, '{"valor":4}', {
       Authorization: `Bearer ${reader.token}`, 'If-Match': saved.headers.etag,
@@ -190,6 +234,12 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     assert.equal((await http(port, 'localhost', 'GET', dbPath, null, auth)).body, '{"valor":2}');
     assert.equal((await readFile(path.join(dataDir, 'databases', database.id, 'data.json'), 'utf8')), '{"valor":2}');
     assert.equal((await http(port, 'localhost', 'GET', '/api/databases', null, { Cookie: ownerCookie })).status, 401);
+    const relogin = await http(port, 'localhost', 'POST', '/api/login', JSON.stringify({ password: 'senha-muito-longa-123' }),
+      { Origin: portalOrigin, 'Content-Type': 'application/json' });
+    assert.equal(relogin.status, 200);
+    const newOwnerCookie = relogin.headers['set-cookie'][0].split(';')[0];
+    assert.equal(JSON.parse((await http(port, 'localhost', 'POST', revealInitialPath, null,
+      { Cookie: newOwnerCookie, Origin: portalOrigin })).body).token, token);
   } finally { await stop(); await rm(dataDir, { recursive: true, force: true }); }
 });
 

@@ -25,14 +25,14 @@ Para testar em um Debian na sua rede, siga o [guia de implantação local](docs/
 
 ## Fluxo
 
-1. Cadastre um arquivo `.json` no portal. O portal mostra o endereço do banco e uma chave inicial de leitura e gravação. **A chave é mostrada somente naquele momento.**
+1. Cadastre um arquivo `.json` no portal. O portal mostra o endereço do banco e uma chave inicial de leitura e gravação. O proprietário pode consultar essa chave novamente na lista de bancos.
 2. Escolha o banco na seção de integração e copie a instrução para o Claude Code. Ela inclui o endereço do banco, sem incluir a chave.
 3. Teste a aplicação localmente: ela deve pedir a chave ao usuário durante a execução e acessar o banco por HTTP. O JSON não precisa estar na pasta da aplicação.
 4. Quando o site estiver pronto, envie um ZIP com HTML e os demais recursos. O ZIP deve conter a referência ao endereço do banco e **não** deve conter `db_global` nem a chave. O portal retorna uma URL para o site.
 
-O proprietário pode criar chaves distintas para cada pessoa ou dispositivo, com permissão de leitura ou de leitura e gravação, e revogá-las. Uma chave dá acesso somente ao banco ao qual pertence. Quem tiver uma chave válida pode acessar esse banco; cuide dela como uma senha. Como a aplicação executa JavaScript no navegador, use somente código em que você confia e não embuta a chave em seus arquivos.
+O proprietário pode criar chaves distintas para cada pessoa ou dispositivo, com permissão de leitura ou de leitura e gravação, consultá-las e revogá-las. Uma chave dá acesso somente ao banco ao qual pertence. Quem tiver uma chave válida pode acessar esse banco; cuide dela como uma senha. Como a aplicação executa JavaScript no navegador, use somente código em que você confia e não embuta a chave em seus arquivos.
 
-Ao criar uma chave adicional, o portal abre uma janela com o valor completo e o botão **Copiar chave**. Guarde o valor antes de fechar: a lista mostra depois apenas o nome e a permissão. Se perder a chave, crie outra e revogue a antiga.
+Ao criar uma chave adicional, o portal abre uma janela com o valor completo e o botão **Copiar chave**. Depois, use **Ver chave** na lista para consultá-la novamente. Os valores de chaves novas são guardados cifrados com uma chave derivada da senha do proprietário; a lista e a API pública não exibem esses valores. Chaves criadas antes desta atualização existem apenas como hash e não podem ser recuperadas. Para uma delas, use **Gerar nova chave**: a anterior será invalidada e as aplicações que a usavam precisarão receber a nova.
 
 Na lista de bancos, **Apagar banco** pede confirmação e remove definitivamente o JSON e todas as suas chaves. Sites já publicados continuam no portal, mas perdem acesso ao banco apagado. Faça o download do JSON antes de excluir se precisar guardar uma cópia.
 

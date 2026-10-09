@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, scryptSync, timingSafeEqual, createHash, createCipheriv, createDecipheriv } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { isIP } from 'node:net';
@@ -92,19 +92,46 @@ function databaseUrl(id) { return `${portalOrigin()}/api/db-access/${id}`; }
 
 function hashToken(token) { return createHash('sha256').update(token).digest('hex'); }
 
+function tokenEncryptionKey(password, salt) {
+  return scryptSync(password, `${salt}:database-keys-v1`, 32);
+}
+
+function sealToken(token, encryptionKey, databaseId, keyId) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', encryptionKey, nonce);
+  cipher.setAAD(Buffer.from(`${databaseId}:${keyId}`));
+  const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return { nonce: nonce.toString('base64'), data: encrypted.toString('base64'), tag: cipher.getAuthTag().toString('base64') };
+}
+
+function unsealToken(sealed, encryptionKey, databaseId, keyId, expectedHash) {
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', encryptionKey, Buffer.from(sealed.nonce, 'base64'));
+    decipher.setAAD(Buffer.from(`${databaseId}:${keyId}`));
+    decipher.setAuthTag(Buffer.from(sealed.tag, 'base64'));
+    const token = Buffer.concat([decipher.update(Buffer.from(sealed.data, 'base64')), decipher.final()]).toString('utf8');
+    if (hashToken(token) !== expectedHash) throw new Error('Chave inconsistente.');
+    return token;
+  } catch { throw new HttpError(409, 'Não foi possível recuperar esta chave. Gere uma nova para este acesso.'); }
+}
+
 function cookie(req, name) {
   const match = (req.headers.cookie || '').match(new RegExp(`(?:^|; )${name}=([^;]*)`));
   return match ? match[1] : '';
 }
 
 function currentSession(req) {
-  const session = sessions.get(cookie(req, 'ss_session'));
-  if (!session || session.expires < Date.now()) return null;
+  const token = cookie(req, 'ss_session');
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (session.expires < Date.now()) { sessions.delete(token); return null; }
   return session;
 }
 
 function requireOwner(req) {
-  if (!currentSession(req)) throw new HttpError(401, 'Entre no portal para continuar.');
+  const session = currentSession(req);
+  if (!session) throw new HttpError(401, 'Entre no portal para continuar.');
+  return session;
 }
 
 function checkOrigin(req, host) {
@@ -124,9 +151,9 @@ async function ownerRecord() {
 
 function passwordHash(password, salt) { return scryptSync(password, salt, 64).toString('hex'); }
 
-function newSession(res) {
+function newSession(res, password, salt) {
   const token = randomBytes(32).toString('hex');
-  sessions.set(token, { expires: Date.now() + 12 * 60 * 60 * 1000 });
+  sessions.set(token, { expires: Date.now() + 12 * 60 * 60 * 1000, encryptionKey: tokenEncryptionKey(password, salt) });
   setSessionCookie(res, token, 12 * 60 * 60);
 }
 
@@ -352,7 +379,7 @@ async function authRoute(req, res, pathname) {
     const salt = randomBytes(16).toString('hex');
     try { await fsp.writeFile(ownerFile, JSON.stringify({ salt, hash: passwordHash(password, salt) }), { flag: 'wx', mode: 0o600 }); }
     catch (err) { if (err.code === 'EEXIST') throw new HttpError(409, 'O proprietário já foi configurado.'); throw err; }
-    newSession(res);
+    newSession(res, password, salt);
     return json(res, 201, { ok: true });
   }
   if (pathname === '/api/login' && req.method === 'POST') {
@@ -369,7 +396,7 @@ async function authRoute(req, res, pathname) {
       throw new HttpError(401, 'Senha incorreta.');
     }
     loginFailures.delete(address);
-    newSession(res);
+    newSession(res, password, owner.salt);
     return json(res, 200, { ok: true });
   }
   if (pathname === '/api/logout' && req.method === 'POST') {
@@ -384,7 +411,7 @@ function publicDatabase(meta) {
   return {
     id: meta.id, name: meta.name, createdAt: meta.createdAt,
     url: databaseUrl(meta.id),
-    keys: meta.keys.map(({ id, label, permission, createdAt }) => ({ id, label, permission, createdAt })),
+    keys: meta.keys.map(({ id, label, permission, createdAt, sealedToken }) => ({ id, label, permission, createdAt, canReveal: !!sealedToken })),
   };
 }
 
@@ -404,7 +431,7 @@ async function listDatabases() {
   return items.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-async function uploadDatabase(req, res) {
+async function uploadDatabase(req, res, session) {
   const id = randomBytes(8).toString('hex');
   const tempFile = path.join(tmpDir, `${id}.json`);
   const tempDir = path.join(tmpDir, id);
@@ -413,9 +440,10 @@ async function uploadDatabase(req, res) {
     await validateJsonFile(tempFile);
     const token = randomBytes(32).toString('base64url');
     const now = new Date().toISOString();
+    const keyId = randomBytes(6).toString('hex');
     const meta = { id, name: filename, createdAt: now, keys: [{
-      id: randomBytes(6).toString('hex'), label: 'Chave inicial', permission: 'write',
-      hash: hashToken(token), createdAt: now,
+      id: keyId, label: 'Chave inicial', permission: 'write',
+      hash: hashToken(token), sealedToken: sealToken(token, session.encryptionKey, id, keyId), createdAt: now,
     }] };
     await fsp.mkdir(tempDir);
     await fsp.rename(tempFile, path.join(tempDir, 'data.json'));
@@ -427,12 +455,12 @@ async function uploadDatabase(req, res) {
   }
 }
 
-async function databaseManagement(req, res, pathname) {
+async function databaseManagement(req, res, pathname, session) {
   if (pathname === '/api/databases' && req.method === 'GET') return json(res, 200, await listDatabases());
-  if (pathname === '/api/databases' && req.method === 'POST') return uploadDatabase(req, res);
-  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|keys)(?:\/([a-f0-9]{12}))?)?$/.exec(pathname);
+  if (pathname === '/api/databases' && req.method === 'POST') return uploadDatabase(req, res, session);
+  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|keys)(?:\/([a-f0-9]{12})(?:\/(reveal|rotate))?)?)?$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
-  const [, id, action, keyId] = match;
+  const [, id, action, keyId, keyAction] = match;
   const { dir, meta } = await getDatabase(id);
   if (!action && req.method === 'GET') return json(res, 200, publicDatabase(meta));
   if (!action && req.method === 'DELETE') {
@@ -457,13 +485,36 @@ async function databaseManagement(req, res, pathname) {
     return withDbLock(id, async () => {
       const fresh = (await getDatabase(id)).meta;
       const token = randomBytes(32).toString('base64url');
-      const key = { id: randomBytes(6).toString('hex'), label: label.trim(), permission, hash: hashToken(token), createdAt: new Date().toISOString() };
+      const keyId = randomBytes(6).toString('hex');
+      const key = { id: keyId, label: label.trim(), permission, hash: hashToken(token),
+        sealedToken: sealToken(token, session.encryptionKey, id, keyId), createdAt: new Date().toISOString() };
       fresh.keys.push(key);
       await atomicWrite(path.join(dir, 'meta.json'), JSON.stringify(fresh, null, 2));
       return json(res, 201, { key: publicDatabase(fresh).keys.at(-1), token });
     });
   }
-  if (action === 'keys' && keyId && req.method === 'DELETE') {
+  if (action === 'keys' && keyId && keyAction === 'reveal' && req.method === 'POST') {
+    return withDbLock(id, async () => {
+      const key = (await getDatabase(id)).meta.keys.find(item => item.id === keyId);
+      if (!key) throw new HttpError(404, 'Chave não encontrada.');
+      if (!key.sealedToken) throw new HttpError(409, 'Esta chave antiga não pode ser recuperada. Gere uma nova para este acesso.');
+      return json(res, 200, { token: unsealToken(key.sealedToken, session.encryptionKey, id, keyId, key.hash) });
+    });
+  }
+  if (action === 'keys' && keyId && keyAction === 'rotate' && req.method === 'POST') {
+    return withDbLock(id, async () => {
+      const fresh = (await getDatabase(id)).meta;
+      const key = fresh.keys.find(item => item.id === keyId);
+      if (!key) throw new HttpError(404, 'Chave não encontrada.');
+      const token = randomBytes(32).toString('base64url');
+      key.hash = hashToken(token);
+      key.sealedToken = sealToken(token, session.encryptionKey, id, keyId);
+      key.rotatedAt = new Date().toISOString();
+      await atomicWrite(path.join(dir, 'meta.json'), JSON.stringify(fresh, null, 2));
+      return json(res, 200, { token, key: publicDatabase(fresh).keys.find(item => item.id === keyId) });
+    });
+  }
+  if (action === 'keys' && keyId && !keyAction && req.method === 'DELETE') {
     return withDbLock(id, async () => {
       const fresh = (await getDatabase(id)).meta;
       if (!fresh.keys.some(key => key.id === keyId)) throw new HttpError(404, 'Chave não encontrada.');
@@ -605,9 +656,9 @@ async function handler(req, res, listener = 'portal') {
       return authRoute(req, res, pathname);
     }
     if (pathname.startsWith('/api/databases')) {
-      requireOwner(req);
+      const session = requireOwner(req);
       if (req.method !== 'GET') checkOrigin(req, host);
-      return databaseManagement(req, res, pathname);
+      return databaseManagement(req, res, pathname, session);
     }
     if (pathname === '/api/apps') {
       requireOwner(req);

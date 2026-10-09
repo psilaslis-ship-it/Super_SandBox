@@ -56,6 +56,18 @@ button.is-busy::before {
   flex-wrap: wrap;
 }
 
+.key-item {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.key-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
 .record-actions .danger-button {
   border-color: #98606b;
   color: #ffd4da;
