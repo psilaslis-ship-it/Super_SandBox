@@ -67,13 +67,13 @@ function showListLoading(list, message) {
   list.classList.add('is-loading');
 }
 
-function copyWithSelection(value) {
+function copyWithSelection(value, container = document.body) {
   const field = document.createElement('textarea');
   const previousFocus = document.activeElement;
   field.value = value;
   field.readOnly = true;
-  field.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
-  document.body.append(field);
+  field.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;opacity:0.01;font-size:16px;pointer-events:none';
+  container.append(field);
   field.focus();
   field.select();
   try { return document.execCommand('copy'); }
@@ -90,14 +90,14 @@ function copyFeedback(button, message) {
   copyTimers.set(button, setTimeout(() => { button.textContent = copyLabels.get(button); }, 2500));
 }
 
-async function copy(value, button, source) {
+async function copy(value, button, source, fallbackContainer = document.body) {
   let copied = false;
   if (navigator.clipboard?.writeText) {
     try { await navigator.clipboard.writeText(value); copied = true; }
     catch { /* Tenta a cópia por seleção em páginas HTTP da rede local. */ }
   }
   if (!copied) {
-    try { copied = copyWithSelection(value); }
+    try { copied = copyWithSelection(value, fallbackContainer); }
     catch { /* O navegador bloqueou também a alternativa. */ }
   }
   if (copied) return copyFeedback(button, 'Copiado!');
@@ -136,7 +136,8 @@ function showKeyDialog(token, title, description) {
   keyDialog.showModal();
 }
 $('#copy-token').addEventListener('click', () => copy($('#secret-token').textContent, $('#copy-token'), $('#secret-token')));
-$('#key-dialog-copy').addEventListener('click', () => copy($('#key-dialog-token').textContent, $('#key-dialog-copy'), $('#key-dialog-token')));
+$('#key-dialog-copy').addEventListener('click', () => copy(
+  $('#key-dialog-token').textContent, $('#key-dialog-copy'), $('#key-dialog-token'), keyDialog));
 $('#key-dialog-close').addEventListener('click', () => keyDialog.close());
 keyDialog.addEventListener('cancel', event => event.preventDefault());
 keyDialog.addEventListener('close', () => {
