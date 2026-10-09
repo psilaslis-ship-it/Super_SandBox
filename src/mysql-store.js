@@ -184,7 +184,8 @@ export function createMysqlStore(config) {
   async function records(dbId, collectionId, cursor = 0, limit = 50) {
     await collection(dbId, collectionId);
     const [rows] = await pool.execute(`SELECT seq, record_id AS id, payload AS data, version
-      FROM ss_records WHERE db_id=? AND collection_id=? AND seq>? ORDER BY seq LIMIT ?`,
+      FROM ss_records FORCE INDEX (record_page)
+      WHERE db_id=? AND collection_id=? AND seq>? ORDER BY seq LIMIT ?`,
       [dbId, collectionId, cursor, limit + 1]);
     const hasMore = rows.length > limit;
     const page = rows.slice(0, limit);
