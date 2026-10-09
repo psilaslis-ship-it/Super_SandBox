@@ -47,7 +47,7 @@ O banco vazio começa sem tabelas; o arquivo `estrutura.sql` define as tabelas q
 
 ## Arquivos SQL
 
-Cada banco MySQL tem seu próprio espaço de tabelas. Os nomes definidos no SQL são isolados internamente por banco; o arquivo não precisa conhecer prefixos nem credenciais. A área **Atualizar estrutura com arquivo .sql** permite aplicar a estrutura inicial e alterações posteriores. O limite padrão é 5 MB (`MAX_SQL_MB`, entre 1 e 50).
+Cada banco MySQL tem seu próprio espaço de tabelas. Os nomes definidos no SQL são isolados internamente por banco; o arquivo não precisa conhecer prefixos nem credenciais. A área **Atualizar estrutura com arquivo .sql** permite aplicar a estrutura inicial e alterações posteriores. O limite padrão é 5 MB (`MAX_SQL_MB`, entre 1 e 50). Envie o `.sql` separadamente nessa área; ele nunca deve ser colocado dentro do ZIP do site. Para bancos criados a partir de JSON, os grupos importados já são acessados pela API de coleções e não exigem um arquivo SQL. Gere e envie SQL apenas quando a aplicação precisar de tabelas SQL adicionais ou alterações estruturais.
 
 Para proteger os registros, os arquivos aceitam `CREATE TABLE`, `ALTER TABLE ADD COLUMN`, `ALTER TABLE RENAME COLUMN`, adição de índices e remoção de índices. Não aceitam comandos para apagar tabelas, colunas ou registros, trocar tipos existentes, criar usuários ou mudar permissões. Para colunas novas obrigatórias, informe `DEFAULT`. Cada tabela recebe um identificador interno; crie normalmente as colunas de negócio, inclusive uma coluna chamada `id`, sem `PRIMARY KEY` ou `AUTO_INCREMENT`.
 

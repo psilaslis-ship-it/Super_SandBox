@@ -338,7 +338,7 @@ Trate 409 como conflito e recarregue antes de salvar novamente. Trate 401/403 so
 
 O site deve funcionar aberto localmente (inclusive file://) e depois de publicado. Use caminhos relativos para recursos. Não inclua o JSON original, arquivos SQL nem a chave no ZIP. Inclua os demais recursos localmente e evite dependências externas.
 
-Implemente e teste a aplicação usando a API documentada. Descreva os arquivos alterados e entregue um ZIP pronto para publicação, junto com estrutura.sql.`;
+Implemente e teste a aplicação usando a API documentada. Descreva os arquivos alterados e entregue o ZIP do site e estrutura.sql como arquivos separados. O SQL deve ser enviado pela opção de atualização do banco, nunca dentro do ZIP.`;
   }
 
   return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados deste banco MySQL por meio da API HTTP. Preserve as telas, regras de negócio, fluxo e formato atual dos dados. Altere apenas a camada que lê e salva.
@@ -359,9 +359,11 @@ Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro u
 
 Todas as requisições enviam Authorization: Bearer <chave>. Peça a chave ao usuário no momento de conectar e mantenha-a apenas em memória. Nunca grave a chave no código, ZIP, URL ou armazenamento local. Em 409 recarregue e apresente o conflito; em 401/403 solicite uma chave com permissão adequada. Preserve alterações não salvas se a rede falhar.
 
-Gere um arquivo estrutura.sql que descreva a estrutura atual. Se a aplicação precisar de novas tabelas ou colunas, inclua no final uma seção separada chamada “Migração estrutural sugerida” com comandos aditivos que preservem os dados. Não inclua comandos destrutivos. O arquivo poderá ser enviado na opção de atualização do banco.
+${imported
+  ? `Os dados importados do JSON já estão disponíveis pela API de coleções no MySQL. Não gere estrutura.sql para esses dados e não converta os grupos em tabelas SQL. Se a aplicação realmente precisar de tabelas SQL adicionais, gere um arquivo separado apenas para essa necessidade e explique que ele deve ser enviado pela opção “Atualizar estrutura com arquivo .sql” no banco. Nunca inclua arquivos SQL no ZIP do site.`
+  : `Gere um arquivo estrutura.sql que descreva as tabelas existentes. Se a aplicação precisar de novas tabelas ou colunas, inclua comandos aditivos que preservem os dados, sem comandos destrutivos. Entregue o SQL como arquivo separado para envio pela opção “Atualizar estrutura com arquivo .sql” no banco; nunca o inclua no ZIP do site.`}
 
-Mantenha a aplicação funcionando localmente (inclusive file://) e publicada, usando o mesmo endereço. Use caminhos relativos, não inclua JSON nem chave no ZIP e evite recursos externos. Implemente, teste e entregue um ZIP pronto para publicação junto com estrutura.sql.`;
+Mantenha a aplicação funcionando localmente (inclusive file://) e publicada, usando o mesmo endereço. Use caminhos relativos, não inclua JSON, arquivos SQL nem chave no ZIP e evite recursos externos. Implemente, teste e entregue somente o ZIP do site para publicação${imported ? '.' : ' e o arquivo SQL separado, se houver estrutura a aplicar.'}`;
 }
 
 async function updatePrompt() {
