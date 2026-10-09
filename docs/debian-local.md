@@ -1,6 +1,6 @@
-# Testar em um servidor Debian local
+# Testar em um servidor Debian na rede local
 
-Este procedimento mantém o serviço disponível apenas na própria máquina Debian. Para abrir o portal em outro computador da rede, use um túnel SSH temporário. Nenhum IP ou nome do servidor é gravado no repositório.
+O modo padrão atende apenas a própria máquina. Para abrir o portal diretamente pelo IP do Debian na rede local, crie um `.env` somente naquele servidor. Nenhum IP ou nome do servidor é gravado no repositório.
 
 ## 1. Preparar o Debian
 
@@ -39,11 +39,35 @@ sudo docker compose ps
 curl -fsS http://127.0.0.1:8080/health
 ```
 
-O último comando deve retornar `{"ok":true}`. O `compose.yaml` publica `127.0.0.1:8080:8080`; por isso, o portal não fica diretamente exposto na rede.
+O último comando deve retornar `{"ok":true}`. Sem `.env`, o Compose vincula as portas a `127.0.0.1` e o portal não fica diretamente exposto na rede.
 
-## 3. Abrir de outro computador
+## 3. Abrir diretamente pelo IP na rede local
 
-No computador onde está o navegador, abra um terminal e mantenha este comando em execução:
+Descubra o IPv4 do Debian na sua rede:
+
+```bash
+hostname -I
+```
+
+Escolha o endereço da interface usada pelos outros computadores (exemplo: `192.168.1.50`). Na pasta do projeto, crie o `.env` local com esse endereço nos dois campos:
+
+```bash
+LAN_IP=192.168.1.50
+printf 'BIND_IP=%s\nPUBLIC_HOST=%s\n' "$LAN_IP" "$LAN_IP" > .env
+sudo docker compose up --build -d
+sudo docker compose ps
+curl -fsS "http://$LAN_IP:8080/health"
+```
+
+Troque `192.168.1.50` pelo IP real. No navegador de outro computador da mesma rede, abra **`http://IP_DO_DEBIAN:8080`**. O portal retorna URLs dos sites no formato **`http://IP_DO_DEBIAN:8081/apps/<id>/`**. As duas portas precisam estar acessíveis na rede local; não configure redirecionamento delas no roteador para a internet. A porta 8081 separa os sites da origem administrativa. Essa publicação em IP específico segue o mecanismo de [portas do Docker](https://docs.docker.com/engine/network/port-publishing/).
+
+O `.env` está no `.gitignore` e não acompanha `git pull` ou `git push`. Se o IP do Debian mudar, atualize os dois valores e execute `sudo docker compose up -d` novamente. O endereço do banco exibido no portal também passará a usar esse IP. Sites já gerados com `localhost` fixo precisam dessa referência atualizada e de um novo ZIP. No modo LAN, os recursos do site devem usar caminhos relativos, pois ele é servido sob `/apps/<id>/`.
+
+O tráfego HTTP da rede local não é criptografado. Use este modo em uma rede confiável para testes. Para acesso fora dela ou com dados sensíveis, configure HTTPS antes de compartilhar chaves.
+
+## 4. Alternativa: túnel SSH sem abrir portas na rede
+
+Use esta alternativa com o **modo padrão**, sem o `.env` da etapa 3. No computador onde está o navegador, abra um terminal e mantenha este comando em execução:
 
 ```bash
 ssh -N -L 8080:127.0.0.1:8080 USUARIO@IP_DO_DEBIAN
@@ -55,7 +79,7 @@ Se estiver navegando diretamente no Debian, abra `http://localhost:8080` sem tú
 
 No primeiro acesso, crie a senha de proprietário. Cadastre um JSON, copie a chave de acesso exibida e, depois, publique um ZIP do site sem o JSON e sem a chave.
 
-## 4. Verificar, atualizar e parar
+## 5. Verificar, atualizar e parar
 
 Execute estes comandos na pasta `Super_SandBox` do Debian:
 

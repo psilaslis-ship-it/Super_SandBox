@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
+import { isIP } from 'node:net';
 import Busboy from 'busboy';
 import yauzl from 'yauzl';
 
@@ -16,9 +17,14 @@ const databasesDir = path.join(dataDir, 'databases');
 const tmpDir = path.join(dataDir, 'tmp');
 const ownerFile = path.join(dataDir, 'owner.json');
 const port = Number(process.env.PORT || 8080);
+const appPort = Number(process.env.APP_PORT || 8081);
 const domain = (process.env.PUBLIC_BASE_DOMAIN || 'localhost').toLowerCase();
+const publicHost = (process.env.PUBLIC_HOST || domain).toLowerCase();
+const lanMode = publicHost !== domain;
+if (lanMode && isIP(publicHost) !== 4) throw new Error('PUBLIC_HOST deve ser um endereço IPv4 no modo de rede local.');
 const scheme = process.env.PUBLIC_SCHEME || 'http';
 const publicPort = process.env.PUBLIC_PORT || String(port);
+const publicAppPort = process.env.PUBLIC_APP_PORT || String(appPort);
 const maxZipBytes = 50 * 1024 * 1024;
 const maxExtractedBytes = 250 * 1024 * 1024;
 const maxJsonBytes = 10 * 1024 * 1024;
@@ -56,12 +62,13 @@ function json(res, status, value, extraHeaders = {}) {
 }
 
 function appUrl(id) {
+  if (lanMode) return `${scheme}://${publicHost}:${publicAppPort}/apps/${id}/`;
   const suffix = (scheme === 'http' && publicPort === '80') ||
     (scheme === 'https' && publicPort === '443') ? '' : `:${publicPort}`;
   return `${scheme}://${id}.${domain}${suffix}/`;
 }
 
-function portalOrigin(host = domain) {
+function portalOrigin(host = publicHost) {
   const suffix = (scheme === 'http' && publicPort === '80') ||
     (scheme === 'https' && publicPort === '443') ? '' : `:${publicPort}`;
   return `${scheme}://${host}${suffix}`;
@@ -506,10 +513,39 @@ async function serveFile(req, res, root, pathname, portal = false) {
   fs.createReadStream(target, { start, end }).pipe(res);
 }
 
-async function handler(req, res) {
+function blocksLegacyDatabase(pathname) {
+  return pathname.split('/').some(segment => {
+    try { return decodeURIComponent(segment).toLowerCase() === 'db_global'; }
+    catch { return false; }
+  });
+}
+
+async function serveUploadedApp(req, res, id, rootPath, base = '') {
+  const { meta, root } = await getApp(id);
+  if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método não permitido.');
+  if (rootPath === '/') {
+    res.writeHead(302, { Location: `${base}/${meta.entry.split('/').map(encodeURIComponent).join('/')}`, 'Cache-Control': 'no-store' });
+    return res.end();
+  }
+  if (blocksLegacyDatabase(rootPath)) throw new HttpError(403, 'Bancos devem ser acessados pela API autenticada.');
+  return serveFile(req, res, root, rootPath);
+}
+
+async function handler(req, res, listener = 'portal') {
   const host = (req.headers.host || '').split(':')[0].toLowerCase();
   const pathname = new URL(req.url, 'http://internal').pathname;
-  if (host === domain || host === '127.0.0.1') {
+  if (listener === 'apps') {
+    if (!lanMode || ![publicHost, domain, '127.0.0.1'].includes(host)) throw new HttpError(404, 'Endereço não encontrado.');
+    const match = /^\/apps\/([a-f0-9]{16})(\/.*)?$/.exec(pathname);
+    if (!match) throw new HttpError(404, 'Aplicação não encontrada.');
+    const [, id, rest] = match;
+    if (!rest) {
+      res.writeHead(302, { Location: `/apps/${id}/`, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    return serveUploadedApp(req, res, id, rest, `/apps/${id}`);
+  }
+  if (host === domain || host === publicHost || host === '127.0.0.1') {
     if (pathname === '/health' && req.method === 'GET') return json(res, 200, { ok: true });
     if (pathname.startsWith('/api/db-access/')) return databaseAccess(req, res, pathname);
     if (['/api/session', '/api/setup', '/api/login', '/api/logout'].includes(pathname)) {
@@ -533,25 +569,19 @@ async function handler(req, res) {
   const suffix = `.${domain}`;
   const id = host.endsWith(suffix) ? host.slice(0, -suffix.length) : '';
   if (!/^[a-f0-9]{16}$/.test(id)) throw new HttpError(404, 'Endereço não encontrado.');
-  const { meta, root } = await getApp(id);
-  if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método não permitido.');
-  if (pathname === '/') {
-    res.writeHead(302, { Location: '/' + meta.entry.split('/').map(encodeURIComponent).join('/'), 'Cache-Control': 'no-store' });
-    return res.end();
-  }
-  if (pathname.split('/').some(segment => {
-    try { return decodeURIComponent(segment).toLowerCase() === 'db_global'; }
-    catch { return false; }
-  })) throw new HttpError(403, 'Bancos devem ser acessados pela API autenticada.');
-  return serveFile(req, res, root, pathname);
+  return serveUploadedApp(req, res, id, pathname);
 }
 
 await Promise.all([fsp.mkdir(appsDir, { recursive: true }), fsp.mkdir(databasesDir, { recursive: true }), fsp.mkdir(tmpDir, { recursive: true })]);
-http.createServer((req, res) => {
-  Promise.resolve(handler(req, res)).catch(err => {
+function serverFor(listener) {
+  return http.createServer((req, res) => {
+    Promise.resolve(handler(req, res, listener)).catch(err => {
     const status = err.status || 500;
     if (status === 500) console.error(err);
     if (!res.headersSent) json(res, status, { error: status === 500 ? 'Erro interno.' : err.message });
     else res.destroy();
+    });
   });
-}).listen(port, '0.0.0.0', () => console.log(`Super Sandbox em ${scheme}://${domain}:${port}`));
+}
+serverFor('portal').listen(port, '0.0.0.0', () => console.log(`Portal em ${portalOrigin()}`));
+if (lanMode) serverFor('apps').listen(appPort, '0.0.0.0', () => console.log(`Aplicações em ${scheme}://${publicHost}:${publicAppPort}`));

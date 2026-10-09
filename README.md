@@ -8,11 +8,20 @@ Portal Docker local para cadastrar bancos JSON e publicar sites HTML/CSS/JavaScr
 docker compose up --build -d
 ```
 
-Abra **http://localhost:8080**. No primeiro acesso, crie uma senha de proprietário com pelo menos 12 caracteres. Ela protege o cadastro dos bancos, a emissão e revogação das chaves e o envio dos sites. A porta é publicada apenas em `127.0.0.1`, portanto o serviço fica acessível na própria máquina.
+Abra **http://localhost:8080**. No primeiro acesso, crie uma senha de proprietário com pelo menos 12 caracteres. Ela protege o cadastro dos bancos, a emissão e revogação das chaves e o envio dos sites. Por padrão, as portas são publicadas apenas em `127.0.0.1`.
+
+Para abrir diretamente pelo IP do Debian na rede local, crie um `.env` **somente naquele servidor**:
+
+```dotenv
+BIND_IP=192.168.1.50
+PUBLIC_HOST=192.168.1.50
+```
+
+Troque o IP pelo endereço real da máquina e reinicie com `docker compose up --build -d`. Acesse `http://IP:8080` para o portal; os sites publicados recebem URLs `http://IP:8081/apps/<id>/`. O arquivo `.env` é ignorado pelo Git. Veja o [guia Debian](docs/debian-local.md) para os comandos completos. A instalação padrão continua vinculada a `127.0.0.1`.
 
 O volume `sandbox_data` preserva os dados após reiniciar ou recriar o contêiner. `docker compose down -v` remove o volume, inclusive a senha e todos os JSONs.
 
-Para testar em um Debian na sua rede, siga o [guia de implantação local](docs/debian-local.md). O endereço do servidor não fica salvo no projeto; o acesso de outro computador usa um túnel SSH temporário.
+Para testar em um Debian na sua rede, siga o [guia de implantação local](docs/debian-local.md). Ele também explica a alternativa de túnel SSH, que não expõe portas à rede.
 
 ## Fluxo
 
@@ -25,7 +34,7 @@ O proprietário pode criar chaves distintas para cada pessoa ou dispositivo, com
 
 ## API do banco
 
-O endereço de cada banco tem o formato `http://localhost:8080/api/db-access/<id>`. Ele aparece no portal. A API aceita chamadas vindas de aplicações abertas por `file://`, de um servidor local ou da URL publicada; a autorização depende da chave, não da origem do navegador.
+O endereço de cada banco tem o formato `http://HOST:8080/api/db-access/<id>`, onde `HOST` é `localhost` no modo padrão ou o IP configurado no modo LAN. Ele aparece no portal. A API aceita chamadas vindas de aplicações abertas por `file://`, de um servidor local ou da URL publicada; a autorização depende da chave, não da origem do navegador.
 
 | Operação | Requisição | Resposta |
 | --- | --- | --- |
@@ -44,7 +53,7 @@ Compress-Archive -Path examples/contador/* -DestinationPath contador.zip -Force
 
 O ZIP deve ter pelo menos um HTML, pode conter outros HTMLs e pastas, e pode ter um único diretório envolvendo o site. `index.html` é usado como entrada quando existe. O portal preserva os arquivos enviados. Limites: ZIP de 50 MB, conteúdo descompactado de 250 MB e 2.000 entradas. Links simbólicos e caminhos que escapem do ZIP são rejeitados. Inclua no ZIP scripts, estilos, fontes e outros recursos necessários; referências a CDNs ou APIs externas continuam dependências do site.
 
-Cada site recebe uma URL `http://<id>.localhost:8080/`, isolada da origem do portal e dos demais sites. Navegadores atuais reconhecem `.localhost` como endereço local. Se publicar em outro domínio, configure `PUBLIC_BASE_DOMAIN`, `PUBLIC_SCHEME` e `PUBLIC_PORT`, além do DNS e da porta. Use HTTPS ao disponibilizar o serviço para outras máquinas, pois a chave de acesso viaja no cabeçalho HTTP.
+No modo padrão, cada site recebe `http://<id>.localhost:8080/`. No modo LAN, recebe `http://IP:8081/apps/<id>/`. A porta 8081 mantém os sites em uma origem diferente da administração; no modo LAN, os sites compartilham essa origem entre si, portanto publique apenas aplicações confiáveis. O prefixo `/apps/<id>/` exige caminhos **relativos** para scripts, estilos, imagens e navegação interna. Referências absolutas começando por `/` precisam ser ajustadas no site antes do upload. Se um site já foi gerado com `localhost` fixo no endereço do banco, atualize essa referência para o endereço exibido no portal e envie um novo ZIP. Em rede local, as chaves viajam por HTTP sem criptografia; use uma rede confiável ou HTTPS para uso contínuo.
 
 ## Desenvolvimento e testes
 

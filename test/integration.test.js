@@ -153,3 +153,58 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     assert.equal((await http(port, 'localhost', 'GET', '/api/databases', null, { Cookie: ownerCookie })).status, 401);
   } finally { await stop(); await rm(dataDir, { recursive: true, force: true }); }
 });
+
+test('modo LAN retorna URLs por IP e separa portal e aplicações por porta', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'super-sandbox-lan-'));
+  const port = await freePort();
+  const appPort = await freePort();
+  const ip = '192.168.1.77';
+  const child = spawn(process.execPath, ['src/server.js'], {
+    cwd: project,
+    env: { ...process.env, DATA_DIR: dataDir, PORT: String(port), PUBLIC_PORT: String(port),
+      APP_PORT: String(appPort), PUBLIC_APP_PORT: String(appPort), PUBLIC_HOST: ip },
+    stdio: 'pipe',
+  });
+  try {
+    let ready = false;
+    for (let i = 0; i < 60; i++) {
+      if (child.exitCode !== null) throw new Error('Servidor LAN encerrou antes de iniciar.');
+      try { ready = (await http(port, ip, 'GET', '/health')).status === 200; }
+      catch { /* aguardando */ }
+      if (ready) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(ready, true);
+    const origin = `http://${ip}:${port}`;
+    const setup = await http(port, ip, 'POST', '/api/setup', JSON.stringify({ password: 'senha-de-teste-123' }),
+      { Origin: origin, 'Content-Type': 'application/json' });
+    assert.equal(setup.status, 201);
+    const cookie = setup.headers['set-cookie'][0].split(';')[0];
+    const database = await upload(port, '/api/databases', 'dados.json', Buffer.from('{"valor":1}'), cookie);
+    assert.equal(database.status, 201);
+    assert.equal(database.body.database.url, `${origin}/api/db-access/${database.body.database.id}`);
+    const app = await upload(port, '/api/apps', 'site.zip', await zip({
+      'site/index.html': '<h1>Site LAN</h1><script src="assets/app.js"></script>',
+      'site/assets/app.js': 'window.ok = true;',
+    }), cookie);
+    assert.equal(app.status, 201);
+    const base = `/apps/${app.body.id}`;
+    assert.equal(app.body.url, `http://${ip}:${appPort}${base}/`);
+    assert.equal((await http(appPort, ip, 'GET', base)).headers.location, `${base}/`);
+    assert.equal((await http(appPort, ip, 'GET', `${base}/`)).headers.location, `${base}/index.html`);
+    assert.equal((await http(appPort, ip, 'GET', `${base}/index.html`)).body,
+      '<h1>Site LAN</h1><script src="assets/app.js"></script>');
+    assert.equal((await http(appPort, ip, 'GET', `${base}/assets/app.js`)).body, 'window.ok = true;');
+    assert.equal((await http(appPort, ip, 'GET', '/api/databases', null, { Cookie: cookie })).status, 404);
+    const db = await http(port, ip, 'GET', `/api/db-access/${database.body.database.id}`, null,
+      { Authorization: `Bearer ${database.body.token}`, Origin: `http://${ip}:${appPort}` });
+    assert.equal(db.status, 200);
+    assert.equal(db.headers['access-control-allow-origin'], '*');
+  } finally {
+    if (child.exitCode === null) {
+      child.kill();
+      await new Promise(resolve => child.once('exit', resolve));
+    }
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});

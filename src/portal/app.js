@@ -107,6 +107,7 @@ Requisitos:
 - Mostre sucesso somente após a gravação confirmada pela API. Trate falhas de rede e preserve as alterações ainda não salvas na tela.
 - Substitua o antigo seletor de arquivo/pasta local por uma ação “Conectar ao banco” que peça a chave ao usuário. Não tente escolher uma pasta do contêiner pelo seletor nativo de arquivos.
 - Não inclua o arquivo JSON no ZIP da aplicação. Inclua localmente todos os outros recursos usados pelo site; não dependa de CDN ou serviços externos.
+- Use caminhos relativos para HTML, JavaScript, CSS, imagens e navegação interna. O site pode ser publicado sob um prefixo de URL; não use caminhos de recurso começando por /.
 
 Implemente as mudanças no projeto, teste leitura, gravação, chave inválida e conflito de edição. Ao final, entregue um ZIP com o site pronto para publicação e liste os arquivos alterados.`;
 }
