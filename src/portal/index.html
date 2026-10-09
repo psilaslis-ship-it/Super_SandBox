@@ -66,10 +66,15 @@
 
       <section class="panel" aria-labelledby="prompt-title">
         <div class="panel-heading"><span class="section-number">ETAPA 02</span><h2 id="prompt-title">Adapte seu site</h2></div>
-        <p class="section-copy">Escolha seus dados e entregue estas instruções ao Claude Code. Ele ajustará a forma de ler e salvar, preservando as telas e as regras do seu site.</p>
+        <p class="section-copy">Escolha seus dados e entregue estas instruções ao assistente de IA que você usa. Ele ajustará a forma de ler e salvar, preservando as telas e as regras do seu site.</p>
         <label for="prompt-database">Escolha os dados</label>
         <select id="prompt-database"><option value="">Selecione um banco</option></select>
-        <textarea id="claude-prompt" readonly spellcheck="false" placeholder="Escolha seus dados para ver as instruções."></textarea>
+        <label for="prompt-mode" class="prompt-mode-label">O que deseja fazer?</label>
+        <select id="prompt-mode">
+          <option value="app">Adaptar meu site</option>
+          <option value="schema">Criar ou atualizar estrutura SQL</option>
+        </select>
+        <textarea id="ai-prompt" readonly spellcheck="false" placeholder="Escolha seus dados para ver as instruções."></textarea>
         <div class="prompt-actions"><button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instruções</button><button id="download-prompt" class="secondary-button" type="button" disabled>Baixar arquivo .md</button></div>
       </section>
 

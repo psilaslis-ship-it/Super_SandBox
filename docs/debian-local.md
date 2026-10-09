@@ -63,7 +63,7 @@ Troque `192.168.1.50` pelo IP real. No navegador de outro computador da mesma re
 
 O `.env` está no `.gitignore` e não acompanha `git pull` ou `git push`. Se o IP do Debian mudar, atualize os dois valores e execute `sudo docker compose up -d` novamente. O endereço do banco exibido no portal também passará a usar esse IP. Sites já gerados com `localhost` fixo precisam dessa referência atualizada e de um novo ZIP. No modo LAN, os recursos do site devem usar caminhos relativos, pois ele é servido sob `/apps/<id>/`.
 
-O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. Os limites de quantidade são `MAX_DATABASES=20` e `MAX_APPS=20`; ajuste os valores no mesmo `.env` se necessário. Um item individual do JSON importado pode ter até 16 MB. Reserve espaço livre nos volumes para os dados e arquivos temporários da importação.
+O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. Os limites de quantidade são `MAX_DATABASES=20` e `MAX_APPS=20`; ajuste os valores no mesmo `.env` se necessário. O limite padrão de arquivos SQL é 5 MB e pode ser ajustado com `MAX_SQL_MB` (entre 1 e 50). Um item individual do JSON importado pode ter até 16 MB. Reserve espaço livre nos volumes para os dados e arquivos temporários da importação.
 
 O tráfego HTTP da rede local não é criptografado. Use este modo em uma rede confiável para testes. Para acesso fora dela ou com dados sensíveis, configure HTTPS antes de compartilhar chaves.
 
@@ -79,7 +79,7 @@ Substitua `USUARIO` e `IP_DO_DEBIAN` somente no comando. Depois, abra **http://l
 
 Se estiver navegando diretamente no Debian, abra `http://localhost:8080` sem túnel.
 
-No primeiro acesso, crie a senha de proprietário. Importe um JSON ou crie um banco vazio, copie a chave exibida e entregue ao Claude Code as instruções geradas pelo portal. Depois, publique o ZIP do site sem o JSON e sem a chave.
+No primeiro acesso, crie a senha de proprietário. Importe um JSON ou crie um banco vazio, copie a chave exibida e entregue a um assistente de IA de sua preferência as instruções geradas pelo portal. Depois, publique o ZIP do site sem o JSON e sem a chave.
 
 ## 5. Verificar, atualizar e parar
 

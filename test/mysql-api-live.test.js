@@ -91,7 +91,8 @@ test('MySQL real: importação, API com chaves, exportação e banco vazio',
       const emptyDb = (await empty.json()).database;
       createdIds.push(emptyDb.id);
       const emptyStructure = await (await api(`/api/databases/${emptyDb.id}/structure`)).json();
-      assert.deepEqual(emptyStructure.collections.map(group => group.name), ['Dados']);
+      assert.deepEqual(emptyStructure.collections.map(group => group.name), []);
+      assert.deepEqual(emptyStructure.tables.map(table => table.name), []);
     } finally {
       for (const id of createdIds) await api(`/api/databases/${id}`, { method: 'DELETE' }).catch(() => {});
       if (child.exitCode === null) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }

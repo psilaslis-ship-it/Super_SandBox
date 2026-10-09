@@ -36,6 +36,9 @@ if (!Number.isSafeInteger(maxJsonMb) || maxJsonMb < 1 || !Number.isSafeInteger(m
   throw new Error('MAX_JSON_MB deve ser um inteiro positivo válido.');
 }
 const maxJsonBytes = maxJsonMb * 1024 * 1024;
+const maxSqlMb = Number(process.env.MAX_SQL_MB || 5);
+if (!Number.isSafeInteger(maxSqlMb) || maxSqlMb < 1 || maxSqlMb > 50) throw new Error('MAX_SQL_MB deve ser um inteiro entre 1 e 50.');
+const maxSqlBytes = maxSqlMb * 1024 * 1024;
 function positiveLimit(name, fallback) {
   const value = Number(process.env[name] || fallback);
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} deve ser um inteiro positivo.`);
@@ -391,7 +394,7 @@ function parseJson(body) {
 async function authRoute(req, res, pathname) {
   if (pathname === '/api/session' && req.method === 'GET') {
     return json(res, 200, { setupRequired: !(await ownerRecord()), authenticated: !!currentSession(req),
-      maxJsonMb, maxDatabases, maxApps, mysqlAvailable: !!mysqlStore });
+      maxJsonMb, maxSqlMb, maxDatabases, maxApps, mysqlAvailable: !!mysqlStore });
   }
   if (pathname === '/api/setup' && req.method === 'POST') {
     if (await ownerRecord()) throw new HttpError(409, 'O proprietário já foi configurado.');
@@ -516,8 +519,7 @@ async function createMysqlDatabase(req, res, session, imported) {
         throw new HttpError(400, 'Dê um nome de até 100 caracteres para seus dados.');
       }
       name = name.trim();
-      await store.addCollection(id, 'Dados');
-      summary = { collections: 1, records: 0, rootType: 'object' };
+      summary = { collections: 0, records: 0, rootType: 'object' };
     }
     const { meta, token } = initialDatabaseMeta(id, name, session, imported ? 'imported' : 'empty', summary);
     await fsp.mkdir(tempDir);
@@ -571,27 +573,41 @@ async function exportMysqlDatabase(res, meta) {
   res.end();
 }
 
+async function updateMysqlSchema(req, res, meta) {
+  const store = requireMysql();
+  const tempFile = path.join(tmpDir, `${meta.id}-${randomBytes(6).toString('hex')}.sql`);
+  try {
+    const filename = await receiveFile(req, tempFile, '.sql', maxSqlBytes);
+    const result = await withDbLock(meta.id, async () => {
+      const fresh = (await getDatabase(meta.id)).meta;
+      return store.applySqlFile(meta.id, tempFile, filename);
+    });
+    return json(res, 200, result);
+  } finally { await fsp.rm(tempFile, { force: true }); }
+}
+
 async function databaseManagement(req, res, pathname, session) {
   if (pathname === '/api/databases' && req.method === 'GET') return json(res, 200, await listDatabases());
   if (pathname === '/api/databases' && req.method === 'POST') return uploadDatabase(req, res, session);
   if (pathname === '/api/databases/import' && req.method === 'POST') return createMysqlDatabase(req, res, session, true);
   if (pathname === '/api/databases/mysql' && req.method === 'POST') return createMysqlDatabase(req, res, session, false);
-  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|structure|keys)(?:\/([a-f0-9]{12})(?:\/(reveal|rotate))?)?)?$/.exec(pathname);
+  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|structure|sql|keys)(?:\/([a-f0-9]{12})(?:\/(reveal|rotate))?)?)?$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
   const [, id, action, keyId, keyAction] = match;
   const { dir, meta } = await getDatabase(id);
+  if (action === 'sql' && !keyId && req.method === 'POST') return updateMysqlSchema(req, res, meta);
   if (!action && req.method === 'GET') return json(res, 200, publicDatabase(meta));
   if (!action && req.method === 'DELETE') {
     return withDbLock(id, async () => {
       await getDatabase(id);
-      if (meta.kind === 'mysql') await requireMysql().deleteDatabase(id);
+      if (meta.kind === 'mysql' || mysqlStore) await requireMysql().deleteDatabase(id);
       await fsp.rm(dir, { recursive: true });
       return json(res, 200, { ok: true });
     });
   }
   if (action === 'structure' && req.method === 'GET') {
-    if (meta.kind !== 'mysql') throw new HttpError(404, 'Este banco usa o formato JSON anterior.');
-    return json(res, 200, { ...publicDatabase(meta), collections: await requireMysql().collections(id) });
+    const store = requireMysql();
+    return json(res, 200, { ...publicDatabase(meta), collections: await store.collections(id), tables: await store.sqlTables(id) });
   }
   if (action === 'download' && req.method === 'GET') {
     if (meta.kind === 'mysql') return exportMysqlDatabase(res, meta);
@@ -651,21 +667,51 @@ async function databaseManagement(req, res, pathname, session) {
 }
 
 async function databaseAccess(req, res, pathname) {
-  const match = /^\/api\/db-access\/([a-f0-9]{16})(?:\/collections(?:\/([a-f0-9]{16})(?:\/records(?:\/([a-f0-9]{16}))?)?)?)?$/.exec(pathname);
+  const match = /^\/api\/db-access\/([a-f0-9]{16})(.*)$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
   const cors = dbCors;
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
   if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) throw new HttpError(405, 'Método não permitido.');
-  const [, id, collectionId, recordId] = match;
+  const [, id, suffix] = match;
+  const collectionMatch = /^\/collections(?:\/([a-f0-9]{16})(?:\/records(?:\/([a-f0-9]{16}))?)?)?$/.exec(suffix);
+  const [, collectionId, recordId] = collectionMatch || [];
+  const tableMatch = /^\/tables(?:\/([A-Za-z][A-Za-z0-9_]{0,39})(?:\/rows(?:\/(\d+))?)?)?$/.exec(suffix);
+  const [, tableName, sqlRecordId] = tableMatch || [];
   const { dir, meta } = await getDatabase(id);
   const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization || '');
   const key = bearer && meta.keys.find(item => item.hash === hashToken(bearer[1]));
   if (!key) return json(res, 401, { error: 'Chave de acesso inválida.' }, cors);
   if (req.method !== 'GET' && key.permission !== 'write') return json(res, 403, { error: 'Chave somente de leitura.' }, cors);
-  if (meta.kind === 'mysql') {
+  if (meta.kind === 'mysql' || suffix.startsWith('/tables')) {
     const store = requireMysql();
-    const suffix = pathname.slice(`/api/db-access/${id}`.length);
     async function operation() {
+      if (suffix === '/tables' && req.method === 'GET') return json(res, 200, { tables: await store.sqlTables(id) }, cors);
+      if (tableName && suffix.endsWith('/rows') && req.method === 'GET') {
+        const url = new URL(req.url, 'http://internal');
+        const cursor = Number(url.searchParams.get('cursor') || 0);
+        const limit = Number(url.searchParams.get('limit') || 50);
+        if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+          throw new HttpError(400, 'Paginação inválida. Use limit entre 1 e 100.');
+        }
+        return json(res, 200, await store.sqlRows(id, tableName, cursor, limit), cors);
+      }
+      if (tableName && suffix.endsWith('/rows') && req.method === 'POST') {
+        const body = await readBody(req, 16 * 1024 * 1024);
+        return json(res, 201, await store.addSqlRow(id, tableName, parseJson(body)), cors);
+      }
+      if (tableName && sqlRecordId && req.method === 'GET') {
+        const item = await store.sqlRecord(id, tableName, sqlRecordId);
+        return json(res, 200, item, { ...cors, ETag: item.etag });
+      }
+      if (tableName && sqlRecordId && req.method === 'PUT') {
+        const item = await store.updateSqlRow(id, tableName, sqlRecordId,
+          parseJson(await readBody(req, 16 * 1024 * 1024)), req.headers['if-match']);
+        return json(res, 200, item, { ...cors, ETag: item.etag });
+      }
+      if (tableName && sqlRecordId && req.method === 'DELETE') {
+        await store.deleteSqlRow(id, tableName, sqlRecordId, req.headers['if-match']);
+        return json(res, 200, { ok: true }, cors);
+      }
       if ((suffix === '' || suffix === '/collections') && req.method === 'GET') {
         return json(res, 200, { collections: await store.collections(id) }, cors);
       }
@@ -717,7 +763,7 @@ async function databaseAccess(req, res, pathname) {
       return operation();
     });
   }
-  if (collectionId || req.method === 'POST' || req.method === 'DELETE') throw new HttpError(404, 'Endereço não encontrado.');
+  if (suffix !== '' || req.method === 'POST' || req.method === 'DELETE') throw new HttpError(404, 'Endereço não encontrado.');
   if (req.method === 'GET') {
     const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
     try {

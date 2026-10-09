@@ -43,7 +43,8 @@ h1 em { color: #ffcb3d; font-style: normal; }
 .file-drop small { color: #c9aaa5; font-size: 13px; }
 .upload-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 11px; background: #ffcb3d; color: #431218; font-size: 24px; font-weight: 800; }
 .upload-form > input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.empty-form > label, label[for=prompt-database], .auth-panel form label { display: block; margin-bottom: 8px; color: #e9d8cc; font-size: 14px; font-weight: 700; }
+.empty-form > label, label[for=prompt-database], label[for=prompt-mode], .auth-panel form label { display: block; margin-bottom: 8px; color: #e9d8cc; font-size: 14px; font-weight: 700; }
+.prompt-mode-label { margin-top: 16px; }
 .empty-form > input { display: block; width: 100%; max-width: 500px; }
 .form-bottom { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-top: 18px; }
 .status { font-size: 14px; color: #cdb5ad; }
@@ -74,6 +75,10 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .record-actions .danger-button:hover { border-color: #ff6666; }
 .endpoint { overflow-wrap: anywhere; margin: 13px 0 0; color: #edb97a; font-size: 13px; }
 .key-section { margin-top: 16px; padding-top: 15px; border-top: 1px solid #5a373d; }
+.sql-update { margin-top: 16px; padding-top: 14px; border-top: 1px solid #5a373d; }
+.sql-update summary { color: #ffcf59; cursor: pointer; font-size: 14px; font-weight: 750; }
+.sql-update p { color: #cfb3ab; font-size: 13px; line-height: 1.45; }
+.sql-update .file-drop { min-height: 76px; }
 .key-section h4 { margin: 0 0 10px; font-size: 14px; }
 .key-form { display: flex; flex-wrap: wrap; gap: 8px; }
 .key-form input { flex: 1; min-width: 160px; }

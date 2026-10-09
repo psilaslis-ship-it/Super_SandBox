@@ -47,6 +47,7 @@ services:
       PUBLIC_PORT: "${HOST_PORT:-8080}"
       PUBLIC_APP_PORT: "${HOST_APP_PORT:-8081}"
       MAX_JSON_MB: "${MAX_JSON_MB:-512}"
+      MAX_SQL_MB: "${MAX_SQL_MB:-5}"
       MAX_DATABASES: "${MAX_DATABASES:-20}"
       MAX_APPS: "${MAX_APPS:-20}"
       MYSQL_HOST: mysql

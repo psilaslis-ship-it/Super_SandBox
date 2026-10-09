@@ -5,7 +5,7 @@ const authForm = $('#auth-form');
 const databaseList = $('#database-list');
 const appsList = $('#apps-list');
 const promptSelect = $('#prompt-database');
-const promptBox = $('#claude-prompt');
+const promptBox = $('#ai-prompt');
 const keyDialog = $('#key-dialog');
 let setupRequired = false;
 let databases = [];
@@ -238,29 +238,73 @@ Requisitos:
 Implemente as mudanças no projeto, teste leitura, gravação, chave inválida e conflito de edição. Ao final, entregue um ZIP com o site pronto para publicação e liste os arquivos alterados.`;
 }
 
-function mysqlPrompt(db, structure) {
-  const groups = structure.collections.map(group => `- ${JSON.stringify(group.name)}: identificador ${group.id}, ${group.kind === 'list' ? 'lista' : 'valor único'}, ${group.count} item(ns)`).join('\n');
+function mysqlPrompt(db, structure, mode = 'app') {
+  const groups = structure.collections.map(group => `- ${JSON.stringify(group.name)}: ${group.kind === 'list' ? 'lista' : 'valor único'}, ${group.count} item(ns)`).join('\n');
+  const tables = structure.tables.map(table => `- ${table.name}: ${table.count} registro(s); ${table.columns.map(column => `${column.name} ${column.columnType}`).join(', ')}`).join('\n');
   const imported = db.source === 'imported';
-  return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados em um banco MySQL por meio da API HTTP abaixo. Preserve ao máximo a arquitetura atual, as telas, a navegação, o formato dos objetos e todas as regras de negócio. Altere somente a camada que carrega e salva os dados e o fluxo de conexão quando necessário. Não recrie a aplicação.
+  const legacyJson = db.kind !== 'mysql';
+  if (mode === 'schema') {
+    return `Crie um arquivo SQL para ${tables ? 'atualizar a estrutura existente' : 'criar a estrutura inicial'} deste banco, preservando todos os registros atuais. O arquivo será aplicado por uma ferramenta que isola cada banco.
+
+Endereço de referência: ${db.url}
+Grupos de dados existentes: ${groups || '- Nenhum grupo.'}
+Tabelas e colunas atuais: ${tables || '- Ainda não existem tabelas personalizadas.'}
+
+Entregue um arquivo chamado ${tables ? 'atualizacao.sql' : 'estrutura.sql'} contendo apenas comandos compatíveis com MySQL para criação de tabelas e alterações estruturais seguras. Use nomes lógicos simples para tabelas e colunas (letras, números e _; nome de tabela com até 40 caracteres). Tipos aceitos: VARCHAR, CHAR, TINYINT, SMALLINT, MEDIUMINT, INT, BIGINT, DECIMAL, FLOAT, DOUBLE, BOOLEAN, DATE, DATETIME, TIMESTAMP, TIME, YEAR, TEXT, MEDIUMTEXT, LONGTEXT, JSON e BLOB.
+
+Regras para preservar os dados:
+- ${legacyJson ? 'Este banco começou como JSON. As tabelas SQL serão adicionais; mantenha os grupos e registros JSON existentes intactos e não tente convertê-los automaticamente.' : 'Mantenha as tabelas e registros existentes intactos.'}
+- Não use DROP TABLE, DROP COLUMN, TRUNCATE, DELETE, UPDATE de dados, USE, CREATE DATABASE, usuários, permissões, procedures, triggers ou comandos fora da estrutura das tabelas.
+- Em tabelas existentes, faça alterações aditivas: ADD COLUMN, ADD INDEX/UNIQUE INDEX, RENAME COLUMN ou DROP INDEX. Ao adicionar coluna NOT NULL, informe DEFAULT para que os registros existentes continuem válidos.
+- Não altere o tipo de uma coluna existente nem remova colunas. Se uma mudança exigir conversão de dados, explique a migração separadamente em vez de incluir um comando que possa truncar ou descartar valores.
+- Não declare PRIMARY KEY nem AUTO_INCREMENT: o serviço acrescenta um identificador interno a cada registro. Uma coluna de negócio chamada id pode ser criada normalmente.
+- Não use nomes de tabelas prefixados com o identificador do banco; o portal aplica o isolamento automaticamente.
+- Inclua comentários curtos no SQL para explicar cada alteração. Não inclua instruções de execução fora do arquivo.
+
+Confira que o SQL contém apenas estrutura, sem dados de acesso ou chaves. Preserve as tabelas e os campos que já existem. Retorne o arquivo ${tables ? 'atualizacao.sql' : 'estrutura.sql'} e um resumo das mudanças.`;
+  }
+
+  if (!imported && structure.tables.length === 0) {
+    return `Adapte esta aplicação HTML/CSS/JavaScript mantendo sua arquitetura, telas, navegação, formato dos objetos e regras de negócio. Altere somente o acesso aos dados e o fluxo de conexão.
+
+Antes de concluir, crie um arquivo estrutura.sql com as tabelas e colunas necessárias para a aplicação. Use nomes simples de tabela e coluna. Não inclua PRIMARY KEY, AUTO_INCREMENT, DROP, DELETE, TRUNCATE, usuários, permissões ou comandos de conexão; o serviço adiciona IDs internos e aplica o SQL isolado para este banco. Para novas colunas obrigatórias, defina DEFAULT.
 
 Endereço da API: ${db.url}
-Identificador dos dados: ${db.id}
-Situação inicial: ${imported ? 'JSON já importado com seus dados' : 'banco vazio'}.
+O usuário aplicará estrutura.sql na área de atualização deste banco antes de usar as tabelas.
+
+Para acessar os dados, todas as requisições usam Authorization: Bearer <chave>. Solicite a chave na tela de conexão e mantenha-a apenas em memória. Nunca a inclua no código, ZIP, URL ou armazenamento local.
+
+API de tabelas:
+- GET ${db.url}/tables lista tabelas e colunas.
+- GET ${db.url}/tables/<tabela>/rows?limit=100&cursor=<cursor> lista registros paginados; cada item contém id, data e etag.
+- POST ${db.url}/tables/<tabela>/rows cria um registro JSON.
+- PUT ${db.url}/tables/<tabela>/rows/<id> altera o registro usando If-Match: <etag anterior>.
+- DELETE ${db.url}/tables/<tabela>/rows/<id> apaga um registro usando If-Match.
+
+Trate 409 como conflito e recarregue antes de salvar novamente. Trate 401/403 solicitando uma chave válida ou informando a permissão. Mostre sucesso apenas após confirmação da API. Preserve as alterações locais quando a rede falhar.
+
+O site deve funcionar aberto localmente (inclusive file://) e depois de publicado. Use caminhos relativos para recursos. Não inclua o JSON original, arquivos SQL nem a chave no ZIP. Inclua os demais recursos localmente e evite dependências externas.
+
+Implemente e teste a aplicação usando a API documentada. Descreva os arquivos alterados e entregue um ZIP pronto para publicação, junto com estrutura.sql.`;
+  }
+
+  return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados deste banco MySQL por meio da API HTTP. Preserve as telas, regras de negócio, fluxo e formato atual dos dados. Altere apenas a camada que lê e salva.
+
+Endereço da API: ${db.url}
+Origem dos dados: ${imported ? 'JSON importado, organizado em grupos' : 'banco com estrutura SQL'}.
 Formato original da raiz: ${db.summary?.rootType || 'object'}.
-Grupos disponíveis:
-${groups || '- Nenhum grupo ainda.'}
+Grupos existentes:
+${groups || '- Nenhum grupo.'}
+Tabelas personalizadas:
+${tables || '- Nenhuma.'}
 
-Requisitos de acesso:
-- O site deve funcionar aberto localmente (inclusive file:// ou servidor local) e após ser publicado, sempre usando o mesmo endereço da API acima.
-- O endereço e os identificadores dos grupos podem ficar no código. Nunca inclua a chave privada no HTML, JS, ZIP, URL, armazenamento local ou arquivos distribuídos. Solicite-a ao usuário no momento de conectar e mantenha-a somente em memória durante a sessão.
-- Em todas as chamadas envie Authorization: Bearer <chave>. Para leitura use GET ${db.url}/collections. Para um grupo, use GET ${db.url}/collections/<id>/records?limit=100 e continue com cursor=<nextCursor> enquanto houver outra página. A resposta contém items com id, data e etag.
-- Para criar um item use POST ${db.url}/collections/<id>/records com Content-Type: application/json e o objeto/valor JSON no corpo. Para atualizar use PUT ${db.url}/collections/<id>/records/<id-do-item> com o JSON novo e If-Match: <etag anterior>. Para remover use DELETE nesse endereço com If-Match. Após PUT, guarde o novo ETag. Em 409 recarregue e peça ao usuário para resolver o conflito; em 401/403 peça uma chave válida ou explique a permissão.
-- ${imported ? 'O JSON já foi convertido: não importe de novo. Reconstrua em memória o formato original para a aplicação continuar trabalhando como antes. Cada propriedade de lista corresponde aos items do grupo; propriedades de valor único correspondem ao primeiro item. Preserve a relação entre os itens carregados e seus IDs/ETags para salvar só os itens alterados, criados ou removidos.' : 'Use o grupo Dados existente ou, se a aplicação tiver entidades distintas, crie grupos adicionais uma única vez via POST /collections com {"name":"Nome"}. Consulte primeiro os grupos existentes para evitar duplicatas. Mantenha o modelo e os campos que a aplicação já usa.'}
-- Evite gravar o conjunto inteiro a cada pequena alteração. Faça operações por item, com confirmação real da API antes de mostrar sucesso. Preserve dados ainda não salvos quando houver erro de rede.
-- Substitua apenas a seleção do arquivo/pasta local por uma ação de conectar com chave. Não peça ao navegador para acessar uma pasta do servidor.
-- Não inclua o JSON original nem a chave no ZIP. Inclua todos os outros recursos localmente, use caminhos relativos para HTML, JS, CSS e imagens, e evite dependências externas.
+${imported ? `Continue usando as coleções já importadas: GET ${db.url}/collections e GET/POST/PUT/DELETE em /collections/<id>/records. Reconstrua a estrutura do JSON original em memória e mantenha IDs e ETags para alterar somente itens modificados. Não mova nem descarte os dados importados.` : `Use as tabelas SQL existentes pela API: GET ${db.url}/tables; GET ${db.url}/tables/<tabela>/rows?limit=100&cursor=<cursor>; POST na mesma rota para criar; PUT ou DELETE em /rows/<id> com If-Match: <etag>.`}
 
-Implemente no projeto e teste leitura, criação, alteração, exclusão, paginação, chave inválida, conflito de edição, uso local e uso depois de publicado. Descreva os arquivos alterados e entregue um ZIP pronto para publicação.`;
+Todas as requisições enviam Authorization: Bearer <chave>. Peça a chave ao usuário no momento de conectar e mantenha-a apenas em memória. Nunca grave a chave no código, ZIP, URL ou armazenamento local. Em 409 recarregue e apresente o conflito; em 401/403 solicite uma chave com permissão adequada. Preserve alterações não salvas se a rede falhar.
+
+Gere um arquivo estrutura.sql que descreva a estrutura atual. Se a aplicação precisar de novas tabelas ou colunas, inclua no final uma seção separada chamada “Migração estrutural sugerida” com comandos aditivos que preservem os dados. Não inclua comandos destrutivos. O arquivo poderá ser enviado na opção de atualização do banco.
+
+Mantenha a aplicação funcionando localmente (inclusive file://) e publicada, usando o mesmo endereço. Use caminhos relativos, não inclua JSON nem chave no ZIP e evite recursos externos. Implemente, teste e entregue um ZIP pronto para publicação junto com estrutura.sql.`;
 }
 
 async function updatePrompt() {
@@ -270,18 +314,19 @@ async function updatePrompt() {
   $('#copy-prompt').disabled = true;
   $('#download-prompt').disabled = true;
   if (!db) return;
-  if (db.kind === 'mysql') {
+  if (db.kind === 'mysql' || $('#prompt-mode').value === 'schema') {
     promptBox.value = 'Preparando instruções…';
     try {
       const structure = await api(`/api/databases/${db.id}/structure`);
       if (request !== promptRequest) return;
-      promptBox.value = mysqlPrompt(db, structure);
+      promptBox.value = mysqlPrompt(db, structure, $('#prompt-mode').value);
     } catch (error) { if (request === promptRequest) promptBox.value = error.message; return; }
   } else promptBox.value = promptFor(db);
   $('#copy-prompt').disabled = false;
   $('#download-prompt').disabled = false;
 }
 promptSelect.addEventListener('change', updatePrompt);
+$('#prompt-mode').addEventListener('change', updatePrompt);
 
 async function loadDatabases() {
   showListLoading(databaseList, 'Carregando bancos…');
@@ -293,6 +338,8 @@ async function loadDatabases() {
     promptSelect.replaceChildren(new Option('Selecione um banco', ''));
     for (const db of databases) promptSelect.add(new Option(db.name, db.id));
     promptSelect.value = databases.some(db => db.id === selected) ? selected : '';
+    $('#prompt-mode').disabled = !promptSelect.value || !portalLimits.mysqlAvailable;
+    if ($('#prompt-mode').disabled) $('#prompt-mode').value = 'app';
     updatePrompt();
     databaseList.replaceChildren();
     if (!databases.length) { databaseList.append(textNode('p', 'Nenhum banco cadastrado ainda.', 'empty')); return; }
@@ -326,6 +373,54 @@ function renderDatabase(db) {
     finally { clearBusy(remove); }
   });
   actions.append(copyButton, download, remove); head.append(info, actions);
+  let sqlSection = null;
+  if (db.kind === 'mysql' || portalLimits.mysqlAvailable) {
+    sqlSection = textNode('details', '', 'sql-update');
+    const summary = textNode('summary', 'Atualizar estrutura com arquivo .sql');
+    const description = textNode('p', 'Envie uma atualização gerada pelo seu assistente de IA. O portal aplica alterações estruturais e preserva os registros.');
+    const sqlForm = textNode('form', '', 'sql-form');
+    const fileInput = document.createElement('input');
+    fileInput.id = `sql-file-${db.id}`; fileInput.type = 'file'; fileInput.accept = '.sql,text/plain'; fileInput.required = true;
+    fileInput.hidden = true;
+    const drop = textNode('label', '', 'file-drop');
+    drop.htmlFor = fileInput.id;
+    const icon = textNode('span', '↑', 'upload-icon'); icon.setAttribute('aria-hidden', 'true');
+    const fileLabel = textNode('strong', 'Clique ou arraste um arquivo .sql aqui');
+    const fileLimit = textNode('small', `Até ${portalLimits.maxSqlMb || 5} MB`);
+    drop.append(icon, fileLabel, fileLimit);
+    drop.addEventListener('dragover', event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); drop.classList.add('is-dragover'); } });
+    drop.addEventListener('dragleave', () => drop.classList.remove('is-dragover'));
+    drop.addEventListener('drop', event => {
+      event.preventDefault(); drop.classList.remove('is-dragover');
+      if (sqlForm.getAttribute('aria-busy') === 'true' || event.dataTransfer.files.length !== 1) return;
+      fileInput.files = event.dataTransfer.files;
+      fileLabel.textContent = fileInput.files[0].name;
+      sqlStatus.textContent = 'Arquivo pronto para aplicar.';
+    });
+    fileInput.addEventListener('change', () => {
+      fileLabel.textContent = fileInput.files[0]?.name || 'Clique ou arraste um arquivo .sql aqui';
+    });
+    const submit = textNode('button', 'Aplicar atualização'); submit.type = 'submit';
+    const sqlStatus = textNode('span', 'Somente alterações de estrutura são aceitas.', 'status');
+    const sqlBottom = textNode('div', '', 'form-bottom'); sqlBottom.append(sqlStatus, submit);
+    sqlForm.append(drop, fileInput, sqlBottom);
+    sqlForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      const file = fileInput.files[0]; if (!file) return;
+      if (!file.name.toLowerCase().endsWith('.sql')) { sqlStatus.textContent = 'Selecione um arquivo .sql.'; return; }
+      if (!confirm(`Aplicar a atualização "${file.name}" em "${db.name}"? O portal aceita apenas alterações estruturais sem comandos para apagar dados.`)) return;
+      setBusy(submit, sqlStatus, 'Aplicando a atualização…', sqlForm);
+      try {
+        const formData = new FormData(); formData.append('file', file);
+        const result = await api(`/api/databases/${db.id}/sql`, { method: 'POST', body: formData });
+        sqlStatus.textContent = `Atualização concluída: ${result.applied} alteração(ões) aplicada(s), ${result.skipped} já existente(s).`;
+        await loadDatabases();
+        if (promptSelect.value === db.id) updatePrompt();
+      } catch (error) { sqlStatus.textContent = error.message; }
+      finally { clearBusy(submit, sqlStatus, sqlForm); }
+    });
+    sqlSection.append(summary, description, sqlForm);
+  }
   const keySection = textNode('div', '', 'key-section');
   keySection.append(textNode('h4', 'Chaves de acesso'));
   const form = textNode('form', '', 'key-form');
@@ -391,7 +486,9 @@ function renderDatabase(db) {
     row.append(keyActions); keys.append(row);
   }
   keySection.append(form, keys);
-  record.append(head, endpoint, keySection);
+  record.append(head, endpoint);
+  if (sqlSection) record.append(sqlSection);
+  record.append(keySection);
   return record;
 }
 
