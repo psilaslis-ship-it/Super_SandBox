@@ -225,9 +225,16 @@ function promptFor(db) {
 Endereço público do banco: ${db.url}
 Identificador do banco: ${db.id}
 
+Contrato da resposta:
+- GET retorna o JSON original completo no corpo, sem envelope collections ou data.
+- Exemplo quando a raiz original é um objeto: {"produtos":[{"id":1,"nome":"Caderno"}],"configuracao":{"moeda":"BRL"}}. Se a raiz original for uma lista, a resposta também é uma lista.
+- O ETag é um cabeçalho HTTP chamado ETag, não um campo dentro do JSON. Guarde o valor exato, inclusive aspas, para enviar em If-Match.
+- Antes de interpretar dados, confira response.ok. Uma resposta de erro tem o formato {"error":"mensagem"}: 401 indica chave ausente/inválida, 403 chave sem permissão de gravação, 409 conflito de edição e 413 limite de tamanho excedido.
+
 Requisitos:
 - A aplicação deve funcionar aberta localmente (inclusive por file:// ou por um servidor local) e depois de publicada em outra origem, usando o mesmo endereço de API.
 - O identificador e o endereço podem ficar no código. A chave privada de acesso NÃO pode ficar no código, no ZIP, em arquivos de configuração distribuídos nem na URL. Peça ao usuário a chave quando for acessar o banco e mantenha-a apenas em memória durante a sessão.
+- Na conexão, valide a chave com uma leitura GET antes de liberar a aplicação. Diferencie falha HTTP (mostre status e campo error) de falha de rede/CORS. Não transforme erro HTTP em uma mensagem genérica de estrutura de dados.
 - Para ler, faça GET no endereço acima com Authorization: Bearer <chave>. A resposta é o JSON atual e traz um cabeçalho ETag.
 - Para salvar, faça PUT no mesmo endereço com Authorization: Bearer <chave>, Content-Type: application/json e If-Match: <ETag da última leitura>. Envie o JSON completo diretamente no corpo. Depois de salvar, atualize o ETag com o valor recebido na resposta.
 - Se o PUT retornar 409, mostre conflito de edição e ofereça recarregar os dados; não sobrescreva silenciosamente. Se retornar 401/403, peça uma chave válida ou informe que ela não tem permissão de gravação.
@@ -244,6 +251,43 @@ function mysqlPrompt(db, structure, mode = 'app') {
   const tables = structure.tables.map(table => `- ${table.name}: ${table.count} registro(s); ${table.columns.map(column => `${column.name} ${column.columnType}`).join(', ')}`).join('\n');
   const imported = db.source === 'imported';
   const legacyJson = db.kind !== 'mysql';
+  const apiDetails = imported
+    ? [
+      'Contrato da API para JSON importado:',
+      '',
+      '1. Valide a conex\u00e3o com GET ' + db.url + '/collections e envie Authorization: Bearer <chave>. O corpo de sucesso \u00e9 um envelope, n\u00e3o o JSON original:',
+      '~~~json',
+      JSON.stringify({ collections: [ { id: '0123456789abcdef', name: 'produtos', kind: 'list', count: 2 }, { id: 'fedcba9876543210', name: 'configuracao', kind: 'single', count: 1 } ] }, null, 2),
+      '~~~',
+      'Cada grupo cont\u00e9m um ID opaco, o nome original, o tipo (list ou single) e a quantidade de registros. Localize pelo campo name, mas use o campo id nas rotas. A resposta n\u00e3o \u00e9 uma lista direta.',
+      '',
+      '2. Leia cada grupo em GET ' + db.url + '/collections/<id>/records?limit=100. Resposta paginada de exemplo:',
+      '~~~json',
+      JSON.stringify({ items: [ { id: '89abcdef01234567', data: { id: 1, nome: 'Caderno' }, etag: '"1"' } ], nextCursor: null }, null, 2),
+      '~~~',
+      'Se nextCursor n\u00e3o for null, repita incluindo &cursor=<nextCursor> at\u00e9 terminar. data \u00e9 o valor original e pode ser objeto, lista, texto, n\u00famero, booleano ou null. O id externo e o etag pertencem ao portal; n\u00e3o substitua um campo id existente dentro de data.',
+      '',
+      '3. Reconstrua o JSON conforme Formato original da raiz e os grupos: raiz object vira um objeto cujas propriedades s\u00e3o os nomes dos grupos; kind=list vira um array com os valores data na ordem recebida; kind=single vira o \u00fanico valor data. Raiz array usa o grupo Itens; raiz escalar usa Conte\u00fado. Uma lista vazia com count 0 \u00e9 v\u00e1lida. Se faltarem grupos que a aplica\u00e7\u00e3o precisa, informe os nomes ausentes; n\u00e3o diga que a API falhou.',
+      '',
+      '4. Para criar, envie POST para ' + db.url + '/collections/<id>/records com Content-Type: application/json e o valor JSON do item no corpo. Para editar, use PUT em ' + db.url + '/collections/<id>/records/<recordId> com o valor completo e If-Match igual ao etag do item lido. Para remover, use DELETE na mesma rota com o mesmo If-Match. Cria\u00e7\u00e3o/edi\u00e7\u00e3o retornam um item no formato:',
+      '~~~json',
+      JSON.stringify({ id: '89abcdef01234567', data: { id: 1, nome: 'Caderno' }, etag: '"2"' }, null, 2),
+      '~~~',
+      'N\u00e3o envie o JSON inteiro em PUT para as rotas de cole\u00e7\u00f5es: cada chamada grava um registro. Preserve IDs/ETags e altere apenas itens modificados.'
+    ].join('\n')
+    : [
+      'Contrato da API de tabelas SQL:',
+      '',
+      'GET ' + db.url + '/tables retorna um envelope com tabelas e colunas:',
+      '~~~json',
+      JSON.stringify({ tables: [ { name: 'produtos', columns: [ { name: 'nome', dataType: 'varchar', columnType: 'varchar(120)', nullable: false, defaultValue: null } ], count: 1 } ] }, null, 2),
+      '~~~',
+      'GET ' + db.url + '/tables/<tabela>/rows?limit=100&cursor=<cursor> retorna p\u00e1ginas com items e nextCursor. Cada item tem id, data e etag; use id externo nas rotas e preserve os campos que estiverem dentro de data.',
+      '~~~json',
+      JSON.stringify({ items: [ { id: '1', data: { nome: 'Caderno' }, etag: '"1"' } ], nextCursor: null }, null, 2),
+      '~~~',
+      'POST em /tables/<tabela>/rows cria um registro. PUT ou DELETE em /tables/<tabela>/rows/<id> exige If-Match com o etag lido. As respostas de cria\u00e7\u00e3o/edi\u00e7\u00e3o incluem id, data e etag. IDs externos s\u00e3o strings e podem ser diferentes do campo id de neg\u00f3cio.'
+    ].join('\n');
   if (mode === 'schema') {
     return `Crie um arquivo SQL para ${tables ? 'atualizar a estrutura existente' : 'criar a estrutura inicial'} deste banco, preservando todos os registros atuais. O arquivo será aplicado por uma ferramenta que isola cada banco.
 
@@ -282,6 +326,10 @@ API de tabelas:
 - PUT ${db.url}/tables/<tabela>/rows/<id> altera o registro usando If-Match: <etag anterior>.
 - DELETE ${db.url}/tables/<tabela>/rows/<id> apaga um registro usando If-Match.
 
+${apiDetails}
+
+Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro usam o formato {\"error\":\"mensagem\"}: 401 chave ausente/inv\u00e1lida; 403 sem permiss\u00e3o; 404 URL, banco ou grupo inexistente; 409 conflito de grava\u00e7\u00e3o; 413 limite excedido. Se fetch falhar sem resposta HTTP, informe falha de rede/CORS e preserve os dados ainda n\u00e3o salvos.
+
 Trate 409 como conflito e recarregue antes de salvar novamente. Trate 401/403 solicitando uma chave válida ou informando a permissão. Mostre sucesso apenas após confirmação da API. Preserve as alterações locais quando a rede falhar.
 
 O site deve funcionar aberto localmente (inclusive file://) e depois de publicado. Use caminhos relativos para recursos. Não inclua o JSON original, arquivos SQL nem a chave no ZIP. Inclua os demais recursos localmente e evite dependências externas.
@@ -300,6 +348,10 @@ Tabelas personalizadas:
 ${tables || '- Nenhuma.'}
 
 ${imported ? `Continue usando as coleções já importadas: GET ${db.url}/collections e GET/POST/PUT/DELETE em /collections/<id>/records. Reconstrua a estrutura do JSON original em memória e mantenha IDs e ETags para alterar somente itens modificados. Não mova nem descarte os dados importados.` : `Use as tabelas SQL existentes pela API: GET ${db.url}/tables; GET ${db.url}/tables/<tabela>/rows?limit=100&cursor=<cursor>; POST na mesma rota para criar; PUT ou DELETE em /rows/<id> com If-Match: <etag>.`}
+
+${apiDetails}
+
+Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro usam o formato {"error":"mensagem"}: 401 chave ausente/inv\u00e1lida; 403 sem permiss\u00e3o; 404 URL, banco ou grupo inexistente; 409 conflito de grava\u00e7\u00e3o; 413 limite excedido. Se fetch falhar sem resposta HTTP, informe falha de rede/CORS e preserve os dados ainda n\u00e3o salvos.
 
 Todas as requisições enviam Authorization: Bearer <chave>. Peça a chave ao usuário no momento de conectar e mantenha-a apenas em memória. Nunca grave a chave no código, ZIP, URL ou armazenamento local. Em 409 recarregue e apresente o conflito; em 401/403 solicite uma chave com permissão adequada. Preserve alterações não salvas se a rede falhar.
 
