@@ -151,7 +151,7 @@ $('#copy-result').addEventListener('click', () => copy($('#result-url').href, $(
 $('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt'), promptBox));
 $('#download-prompt').addEventListener('click', () => {
   if (!promptBox.value) return;
-  const blob = new Blob([`# Instruções para adaptar o site\n\n${promptBox.value}\n`], { type: 'text/markdown;charset=utf-8' });
+  const blob = new Blob(['\uFEFF', `# Instruções para adaptar o site\n\n${promptBox.value}\n`], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -221,12 +221,20 @@ $('#logout').addEventListener('click', async () => {
   finally { clearBusy(button); }
 });
 
+function sitePreservationRules(db) {
+  return `ESCOPO OBRIGATÓRIO: examine o projeto e identifique os fluxos que já funcionam antes de editar. Preserve telas, textos, acentos, símbolos, nomes, estrutura de arquivos, cálculos, relatórios, importação/exportação e regras de negócio. Modifique somente a integração de dados e, se necessário, o botão que escolhia especificamente o arquivo do banco. Mantenha os outros seletores de arquivo e as funções locais existentes. Faça alterações pequenas e verificáveis; não recrie nem reformate arquivos inteiros por conveniência.
+
+CODIFICAÇÃO OBRIGATÓRIA: identifique a codificação real de cada arquivo antes de editá-lo. Se já estiver em UTF-8, preserve-a e não recodifique o arquivo inteiro. Os arquivos HTML, CSS e JavaScript publicados serão servidos como UTF-8; se algum original usar outra codificação, converta somente esse arquivo de forma controlada para UTF-8, ajuste o <meta charset> do HTML e confira visualmente todos os textos antes de entregar. Preserve ç, ã, õ, á, é, í, ó, ú e outros caracteres Unicode. Rejeite alterações que produzam caracteres corrompidos como "Ã¡" ou "�". Mantenha idênticos os arquivos que não precisam mudar.
+
+REFERÊNCIA DO BANCO ATUAL: ${db.url}. Localize a configuração da conexão que está sendo adaptada e confira se ela usa exatamente este endereço. Substitua nessa conexão o endereço antigo, se houver; preserve referências a outros bancos usados intencionalmente e informe qualquer ambiguidade. Não altere o formato dos dados para acomodar o endereço. Cada banco tem chave própria: peça ao usuário a chave deste banco em tempo de execução e nunca grave chaves no código ou no ZIP. Se a conexão retornar 404, mostre o endereço usado para diagnóstico e confira o identificador; se retornar 401/403, trate a chave/permissão separadamente.
+
+VALIDAÇÃO FINAL: compare o comportamento antes e depois em fluxos principais, confira o diff e verifique textos e acentos nas telas. Teste conexão, leitura e gravação com este banco quando ele estiver acessível. Informe quais arquivos mudaram, qual endereço de banco foi configurado e qualquer fluxo que não pôde ser testado. Preserve as dependências já usadas pelo projeto; não introduza novas dependências externas nem troque bibliotecas neste ajuste.`;
+}
+
 function promptFor(db) {
   return `Adapte esta aplicação HTML/CSS/JavaScript para usar um banco JSON acessível por API HTTP, mantendo sua interface, regras de negócio e estrutura do JSON.
 
-REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
-
-CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
+${sitePreservationRules(db)}
 
 Endereço público do banco: ${db.url}
 Identificador do banco: ${db.id}
@@ -245,9 +253,9 @@ Requisitos:
 - Para salvar, faça PUT no mesmo endereço com Authorization: Bearer <chave>, Content-Type: application/json e If-Match: <ETag da última leitura>. Envie o JSON completo diretamente no corpo. Depois de salvar, atualize o ETag com o valor recebido na resposta.
 - Se o PUT retornar 409, mostre conflito de edição e ofereça recarregar os dados; não sobrescreva silenciosamente. Se retornar 401/403, peça uma chave válida ou informe que ela não tem permissão de gravação.
 - Mostre sucesso somente após a gravação confirmada pela API. Trate falhas de rede e preserve as alterações ainda não salvas na tela.
-- Substitua o antigo seletor de arquivo/pasta local por uma ação “Conectar ao banco” que peça a chave ao usuário. Não tente escolher uma pasta do contêiner pelo seletor nativo de arquivos.
-- Não inclua o arquivo JSON no ZIP da aplicação. Inclua localmente todos os outros recursos usados pelo site; não dependa de CDN ou serviços externos.
-- Use caminhos relativos para HTML, JavaScript, CSS, imagens e navegação interna. O site pode ser publicado sob um prefixo de URL; não use caminhos de recurso começando por /.
+- Se existir um seletor cuja única função é escolher o arquivo do banco, adapte somente essa conexão para pedir a chave. Preserve os demais seletores, importações e exportações da aplicação.
+- Não inclua o arquivo JSON no ZIP da aplicação. Preserve os recursos e as dependências existentes; informe separadamente se algum recurso externo impedir o funcionamento sem internet.
+- Ao testar a publicação sob um prefixo de URL, corrija somente os caminhos de recursos ou de navegação que falharem. Use caminhos relativos nas novas referências.
 
 Implemente as mudanças no projeto, teste leitura, gravação, chave inválida e conflito de edição. Ao final, entregue um ZIP com o site pronto para publicação e liste os arquivos alterados.`;
 }
@@ -256,7 +264,7 @@ function mysqlPrompt(db, structure, mode = 'app') {
   const groups = structure.collections.map(group => `- ${JSON.stringify(group.name)}: ${group.kind === 'list' ? 'lista' : 'valor único'}, ${group.count} item(ns)`).join('\n');
   const tables = structure.tables.map(table => `- ${table.name}: ${table.count} registro(s); ${table.columns.map(column => `${column.name} ${column.columnType}`).join(', ')}`).join('\n');
   const imported = db.source === 'imported';
-  const legacyJson = db.kind !== 'mysql';
+  const hasImportedJson = imported || db.kind !== 'mysql';
   const apiDetails = imported
     ? [
       'Contrato da API MySQL para dados importados de JSON:',
@@ -308,7 +316,7 @@ Tabelas e colunas atuais: ${tables || '- Ainda não existem tabelas personalizad
 Entregue um arquivo chamado ${tables ? 'atualizacao.sql' : 'estrutura.sql'} contendo apenas comandos compatíveis com MySQL para criação de tabelas e alterações estruturais seguras. Use nomes lógicos simples para tabelas e colunas (letras, números e _; nome de tabela com até 40 caracteres). Tipos aceitos: VARCHAR, CHAR, TINYINT, SMALLINT, MEDIUMINT, INT, BIGINT, DECIMAL, FLOAT, DOUBLE, BOOLEAN, DATE, DATETIME, TIMESTAMP, TIME, YEAR, TEXT, MEDIUMTEXT, LONGTEXT, JSON e BLOB.
 
 Regras para preservar os dados:
-- ${legacyJson ? 'Este banco começou como JSON. As tabelas SQL serão adicionais; mantenha os grupos e registros JSON existentes intactos e não tente convertê-los automaticamente.' : 'Mantenha as tabelas e registros existentes intactos.'}
+- ${hasImportedJson ? 'Este banco contém dados importados de JSON. As tabelas SQL serão adicionais; mantenha os grupos e registros importados intactos e não tente convertê-los automaticamente.' : 'Mantenha as tabelas e registros existentes intactos.'}
 - Não use DROP TABLE, DROP COLUMN, TRUNCATE, DELETE, UPDATE de dados, USE, CREATE DATABASE, usuários, permissões, procedures, triggers ou comandos fora da estrutura das tabelas.
 - Em tabelas existentes, faça alterações aditivas: ADD COLUMN, ADD INDEX/UNIQUE INDEX, RENAME COLUMN ou DROP INDEX. Ao adicionar coluna NOT NULL, informe DEFAULT para que os registros existentes continuem válidos.
 - Não altere o tipo de uma coluna existente nem remova colunas. Se uma mudança exigir conversão de dados, explique a migração separadamente em vez de incluir um comando que possa truncar ou descartar valores.
@@ -316,15 +324,13 @@ Regras para preservar os dados:
 - Não use nomes de tabelas prefixados com o identificador do banco; o portal aplica o isolamento automaticamente.
 - Inclua comentários curtos no SQL para explicar cada alteração. Não inclua instruções de execução fora do arquivo.
 
-Confira que o SQL contém apenas estrutura, sem dados de acesso ou chaves. Preserve as tabelas e os campos que já existem. Retorne o arquivo ${tables ? 'atualizacao.sql' : 'estrutura.sql'} e um resumo das mudanças.`;
+Confira que o SQL contém apenas estrutura, sem dados de acesso ou chaves. Preserve as tabelas e os campos que já existem. Não modifique os arquivos HTML, CSS ou JavaScript nesta tarefa. Retorne o arquivo ${tables ? 'atualizacao.sql' : 'estrutura.sql'} e um resumo das mudanças.`;
   }
 
   if (!imported && structure.tables.length === 0) {
     return `Adapte esta aplicação HTML/CSS/JavaScript mantendo sua arquitetura, telas, navegação, formato dos objetos e regras de negócio. Altere somente o acesso aos dados e o fluxo de conexão.
 
-REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
-
-CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
+${sitePreservationRules(db)}
 
 Antes de concluir, crie um arquivo estrutura.sql com as tabelas e colunas necessárias para a aplicação. Use nomes simples de tabela e coluna. Não inclua PRIMARY KEY, AUTO_INCREMENT, DROP, DELETE, TRUNCATE, usuários, permissões ou comandos de conexão; o serviço adiciona IDs internos e aplica o SQL isolado para este banco. Para novas colunas obrigatórias, defina DEFAULT.
 
@@ -346,16 +352,14 @@ Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro u
 
 Trate 409 como conflito e recarregue antes de salvar novamente. Trate 401/403 solicitando uma chave válida ou informando a permissão. Mostre sucesso apenas após confirmação da API. Preserve as alterações locais quando a rede falhar.
 
-O site deve funcionar aberto localmente (inclusive file://) e depois de publicado. Use caminhos relativos para recursos. Não inclua o JSON original, arquivos SQL nem a chave no ZIP. Inclua os demais recursos localmente e evite dependências externas.
+O site deve funcionar aberto localmente (inclusive file://) e depois de publicado. Corrija somente caminhos de recursos locais que falharem sob o prefixo de publicação e use caminhos relativos nas novas referências. Não inclua o JSON original, arquivos SQL nem a chave no ZIP. Preserve os demais recursos e as dependências existentes; informe separadamente se algum recurso externo impedir o funcionamento sem internet.
 
 Implemente e teste a aplicação usando a API documentada. Descreva os arquivos alterados e entregue o ZIP do site e estrutura.sql como arquivos separados. O SQL deve ser enviado pela opção de atualização do banco, nunca dentro do ZIP.`;
   }
 
   return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados deste banco MySQL por meio da API HTTP. Preserve as telas, regras de negócio, fluxo e formato atual dos dados. Altere apenas a camada que lê e salva.
 
-REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
-
-CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
+${sitePreservationRules(db)}
 
 Endereço da API: ${db.url}
 Origem dos dados: ${imported ? 'JSON importado, organizado em grupos' : 'banco com estrutura SQL'}.
@@ -375,9 +379,9 @@ Todas as requisições enviam Authorization: Bearer <chave>. Peça a chave ao us
 
 ${imported
   ? `Os dados importados do JSON já estão disponíveis pela API de coleções no MySQL. Não gere estrutura.sql para esses dados e não converta os grupos em tabelas SQL. Se a aplicação realmente precisar de tabelas SQL adicionais, gere um arquivo separado apenas para essa necessidade e explique que ele deve ser enviado pela opção “Atualizar estrutura com arquivo .sql” no banco. Nunca inclua arquivos SQL no ZIP do site.`
-  : `Gere um arquivo estrutura.sql que descreva as tabelas existentes. Se a aplicação precisar de novas tabelas ou colunas, inclua comandos aditivos que preservem os dados, sem comandos destrutivos. Entregue o SQL como arquivo separado para envio pela opção “Atualizar estrutura com arquivo .sql” no banco; nunca o inclua no ZIP do site.`}
+  : `Use as tabelas existentes. Gere um arquivo SQL separado somente se a aplicação realmente precisar de novas tabelas ou colunas; nesse caso, inclua apenas comandos aditivos que preservem os dados, sem comandos destrutivos. O usuário enviará esse arquivo pela opção de atualização do banco; nunca o inclua no ZIP do site.`}
 
-Mantenha a aplicação funcionando localmente (inclusive file://) e publicada, usando o mesmo endereço. Use caminhos relativos, não inclua JSON, arquivos SQL nem chave no ZIP e evite recursos externos. Implemente, teste e entregue somente o ZIP do site para publicação${imported ? '.' : ' e o arquivo SQL separado, se houver estrutura a aplicar.'}`;
+Mantenha a aplicação funcionando localmente (inclusive file://) e publicada, usando o mesmo endereço. Corrija somente caminhos que falharem sob o prefixo de publicação e use caminhos relativos nas novas referências. Não inclua JSON, arquivos SQL nem chave no ZIP e preserve as dependências existentes. Implemente, teste e entregue somente o ZIP do site para publicação${imported ? '.' : ' e o arquivo SQL separado, se houver estrutura a aplicar.'}`;
 }
 
 async function updatePrompt() {
@@ -585,8 +589,8 @@ async function loadApps() {
         const missing = app.databaseIds.filter(id => !databases.some(db => db.id === id));
         const connected = app.databaseIds.filter(id => !missing.includes(id))
           .map(id => databases.find(db => db.id === id).name);
-        if (connected.length) info.append(textNode('small', `Banco usado: ${connected.join(', ')}`));
-        if (missing.length) info.append(textNode('small', `Atenção: este site aponta para um banco apagado (${missing.join(', ')}). Atualize o endereço do banco no site.`, 'status'));
+        if (connected.length) info.append(textNode('small', `Referência encontrada para: ${connected.join(', ')}`));
+        if (missing.length) info.append(textNode('small', `Atenção: encontramos no site um endereço de banco ausente (${missing.join(', ')}). Confira a conexão do site.`, 'status'));
       }
       const actions = textNode('div', '', 'record-actions');
       const copyButton = textNode('button', 'Copiar URL'); copyButton.type = 'button';
@@ -633,8 +637,11 @@ async function loadApps() {
         setBusy(updateButton, updateStatus, 'Atualizando este site…', updateForm);
         try {
           const form = new FormData(); form.append('file', file);
-          await api(`/api/apps/${app.id}`, { method: 'PUT', body: form });
-          $('#upload-status').textContent = `Site "${app.name}" atualizado. O link foi mantido.`;
+          const updated = await api(`/api/apps/${app.id}`, { method: 'PUT', body: form });
+          const missing = updated.databaseIds?.filter(id => !databases.some(db => db.id === id)) || [];
+          $('#upload-status').textContent = missing.length
+            ? `Site "${app.name}" atualizado com o mesmo link. Confira o aviso de banco ausente no cartão.`
+            : `Site "${app.name}" atualizado. O link foi mantido.`;
           await loadApps();
         } catch (error) { updateStatus.textContent = error.message; }
         finally { clearBusy(updateButton, updateStatus, updateForm); }
@@ -776,7 +783,10 @@ $('#upload-form').addEventListener('submit', async event => {
   try {
     const form = new FormData(); form.append('file', file);
     const app = await api('/api/apps', { method: 'POST', body: form });
-    status.textContent = 'Aplicação publicada.';
+    const missing = app.databaseIds?.filter(id => !databases.some(db => db.id === id)) || [];
+    status.textContent = missing.length
+      ? 'Site publicado. Encontramos nele uma referência a um banco ausente; confira o aviso no cartão.'
+      : 'Aplicação publicada.';
     $('#result-name').textContent = app.name;
     $('#result-url').href = app.url; $('#result-url').textContent = app.url;
     $('#upload-result').hidden = false;

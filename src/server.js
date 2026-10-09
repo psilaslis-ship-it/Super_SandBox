@@ -277,16 +277,6 @@ async function inspectSite(extractDir) {
   return { root: path.relative(extractDir, siteRoot), entry: html[0], databaseIds: await siteDatabaseIds(siteRoot, files) };
 }
 
-async function validateSiteDatabases(databaseIds) {
-  for (const id of databaseIds) {
-    try { await getDatabase(id); }
-    catch (error) {
-      if (error.status !== 404) throw error;
-      throw new HttpError(409, `O site aponta para um banco que não existe neste portal (${id}). Copie o endereço do banco atual em “Meus dados”, corrija a referência no site e envie o ZIP novamente.`);
-    }
-  }
-}
-
 async function receiveFile(req, destination, extension, maxBytes) {
   return new Promise((resolve, reject) => {
     let fileSeen = false;
@@ -337,7 +327,6 @@ async function upload(req, res) {
     try { await extractZip(tempZip, path.join(tempApp, 'site')); }
     catch (err) { throw err instanceof HttpError ? err : new HttpError(400, 'O arquivo ZIP é inválido ou está corrompido.'); }
     const site = await inspectSite(path.join(tempApp, 'site'));
-    await validateSiteDatabases(site.databaseIds);
     const meta = { id, name: filename.replace(/\.zip$/i, ''), createdAt: new Date().toISOString(), ...site };
     await fsp.writeFile(path.join(tempApp, 'meta.json'), JSON.stringify(meta, null, 2));
     await withDbLock('catalog:apps', async () => {
@@ -360,7 +349,6 @@ async function updateApp(req, res, id) {
     try { await extractZip(tempZip, path.join(tempApp, 'site')); }
     catch (err) { throw err instanceof HttpError ? err : new HttpError(400, 'O arquivo ZIP é inválido ou está corrompido.'); }
     const site = await inspectSite(path.join(tempApp, 'site'));
-    await validateSiteDatabases(site.databaseIds);
     const meta = await withDbLock('catalog:apps', async () => {
       const previous = (await getApp(id)).meta;
       const next = { ...previous, ...site, updatedAt: new Date().toISOString() };

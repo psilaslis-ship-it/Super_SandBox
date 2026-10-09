@@ -227,14 +227,17 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     const badSite = await upload(port, '/api/apps', 'outro.zip', await zip({
       'index.html': `<script>const banco = '${missingDatabase}';</script>`,
     }), ownerCookie);
-    assert.equal(badSite.status, 409, JSON.stringify(badSite.body));
-    assert.match(badSite.body.error, /banco que não existe/);
+    assert.equal(badSite.status, 201, JSON.stringify(badSite.body));
+    assert.deepEqual(badSite.body.databaseIds, ['ffffffffffffffff']);
+    assert.equal((await http(port, `${badSite.body.id}.localhost`, 'GET', '/index.html')).body,
+      `<script>const banco = '${missingDatabase}';</script>`);
     const badUpdate = await upload(port, `/api/apps/${app.body.id}`, 'site.zip', await zip({
       'index.html': `<script>const banco = '${missingDatabase}';</script>`,
     }), ownerCookie, 'PUT');
-    assert.equal(badUpdate.status, 409, JSON.stringify(badUpdate.body));
+    assert.equal(badUpdate.status, 200, JSON.stringify(badUpdate.body));
+    assert.deepEqual(badUpdate.body.databaseIds, ['ffffffffffffffff']);
     assert.equal((await http(port, appHost, 'GET', '/index.html')).body,
-      '<h1>Site original</h1><script src="app.js"></script>');
+      `<script>const banco = '${missingDatabase}';</script>`);
     const updated = await upload(port, `/api/apps/${app.body.id}`, 'site.zip', await zip({
       'index.html': `<h1>Site atualizado</h1><script>const banco = '${database.url}';</script>`,
     }), ownerCookie, 'PUT');
@@ -244,8 +247,10 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
       `<h1>Site atualizado</h1><script>const banco = '${database.url}';</script>`);
     const appsAfterUpdate = JSON.parse((await http(port, 'localhost', 'GET', '/api/apps', null,
       { Cookie: ownerCookie })).body);
-    assert.equal(appsAfterUpdate.length, 1);
-    assert.deepEqual(appsAfterUpdate[0].databaseIds, [database.id]);
+    assert.equal(appsAfterUpdate.length, 2);
+    assert.deepEqual(appsAfterUpdate.find(item => item.id === app.body.id).databaseIds, [database.id]);
+    assert.equal((await http(port, 'localhost', 'DELETE', `/api/apps/${badSite.body.id}`, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).status, 200);
 
     const largeBody = JSON.stringify({ texto: 'x'.repeat(11 * 1024 * 1024) });
     assert.ok(Buffer.byteLength(largeBody) > 10 * 1024 * 1024);

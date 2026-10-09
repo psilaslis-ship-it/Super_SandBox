@@ -33,7 +33,7 @@ Substitua o IP pelo IPv4 do Debian. O portal ficará em `http://IP:8080`; cada s
 
 O ZIP **não deve conter** a chave, o JSON nem a pasta `db_global`. O site deve usar caminhos relativos para seus recursos. O portal não altera o conteúdo dos sites enviados. Sites com dependências externas continuam dependentes delas.
 
-Cada importação de JSON cria um banco novo, com endereço e chave próprios. Repetir o envio do mesmo arquivo não atualiza o banco anterior. O portal avisa quando já existe um banco ou site com o mesmo nome. Ao publicar ou atualizar um site, ele verifica os endereços de banco deste portal encontrados em arquivos HTML e JavaScript do ZIP e recusa referências a bancos apagados. Nos cartões de sites, mostra o banco identificado e avisa quando uma publicação antiga ainda aponta para um banco removido. Se o endereço for montado dinamicamente ou estiver em outro tipo de arquivo, confira a configuração do site manualmente.
+Cada importação de JSON cria um banco novo, com endereço e chave próprios. Repetir o envio do mesmo arquivo não atualiza o banco anterior. O portal avisa quando já existe um banco ou site com o mesmo nome. Ao publicar ou atualizar um site, ele procura referências literais à API de bancos deste portal em arquivos HTML e JavaScript do ZIP. Se encontrar um endereço de banco ausente, mostra um aviso no cartão; o envio continua e os arquivos do site não são alterados. Essa verificação é informativa: endereços montados dinamicamente ou guardados em outros tipos de arquivo podem não aparecer. Confira a configuração da conexão no próprio site.
 
 ## Dados importados
 
