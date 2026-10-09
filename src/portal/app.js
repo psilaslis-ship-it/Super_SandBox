@@ -260,6 +260,15 @@ Requisitos:
 Implemente as mudanças no projeto, teste leitura, gravação, chave inválida e conflito de edição. Ao final, entregue um ZIP com o site pronto para publicação e liste os arquivos alterados.`;
 }
 
+function mysqlOnDemandRules(imported) {
+  return `CARREGAMENTO SOB DEMANDA OBRIGATÓRIO:
+- Ao conectar, consulte somente ${imported ? '/collections para descobrir nomes, tipos, IDs e quantidades dos grupos' : '/tables para descobrir nomes, colunas e quantidades das tabelas'}. Não carregue todos os registros na inicialização nem execute uma sequência automática de páginas até nextCursor=null.
+- Leia apenas os dados necessários para a tela, ação ou registro solicitado. Para listas, peça uma página pequena (por exemplo, limit=25; use limit=1 quando cada registro for grande), guarde os cursores das páginas e busque a próxima somente quando o usuário avançar ou pedir mais. Use os IDs dos itens para editar ou apagar individualmente. Mantenha no navegador apenas a página visível, as alterações ainda não salvas e um cache pequeno com limite definido; descarte páginas antigas quando possível.
+- Preserve os resultados e as regras de negócio existentes. Não apresente busca, filtro, ordenação, totais ou relatórios globais calculados apenas sobre uma página como se representassem o banco inteiro. A API documentada aqui não oferece busca ou agregação geral no servidor. Se algum fluxo exigir todos os registros, identifique-o e explique qual consulta ou estrutura de servidor será necessária; não resolva isso baixando o banco inteiro silenciosamente nem invente rotas que não estão documentadas.
+- ${imported ? 'Uma coleção kind=single pode conter um único registro JSON muito grande. limit=1 limita a quantidade de registros, não divide o conteúdo desse registro. Se uma tela depender de partes desse valor grande, informe claramente que a API atual ainda envia o item inteiro e proponha uma separação planejada dos dados ou uma consulta de servidor, preservando os dados existentes. Não afirme que esse caso ficou paginado.' : 'Cada linha de tabela é enviada por inteiro. Se uma coluna JSON guardar um documento muito grande, a paginação de linhas não divide essa coluna; informe essa limitação e proponha uma consulta de servidor ou estrutura adequada sem alterar os dados existentes por conta própria.'}
+- Valide o comportamento das telas depois da mudança: carregamento inicial, avanço de página, edição, conflito e atualização da lista. Registre no resumo final quais fluxos ficaram sob demanda e quais ainda dependem de um item grande ou de uma consulta que a API não fornece.`;
+}
+
 function mysqlPrompt(db, structure, mode = 'app') {
   const groups = structure.collections.map(group => `- ${JSON.stringify(group.name)}: ${group.kind === 'list' ? 'lista' : 'valor único'}, ${group.count} item(ns)`).join('\n');
   const tables = structure.tables.map(table => `- ${table.name}: ${table.count} registro(s); ${table.columns.map(column => `${column.name} ${column.columnType}`).join(', ')}`).join('\n');
@@ -275,13 +284,13 @@ function mysqlPrompt(db, structure, mode = 'app') {
       '~~~',
       'Cada grupo cont\u00e9m um ID opaco, o nome original, o tipo (list ou single) e a quantidade de registros. Localize pelo campo name, mas use o campo id nas rotas. A resposta n\u00e3o \u00e9 uma lista direta.',
       '',
-      '2. Leia cada grupo em GET ' + db.url + '/collections/<id>/records?limit=100. Resposta paginada de exemplo:',
+      '2. Quando a tela precisar de um grupo, leia sua primeira página em GET ' + db.url + '/collections/<id>/records?limit=25. Resposta paginada de exemplo:',
       '~~~json',
       JSON.stringify({ items: [ { id: '89abcdef01234567', data: { id: 1, nome: 'Caderno' }, etag: '"1"' } ], nextCursor: null }, null, 2),
       '~~~',
-      'Se nextCursor n\u00e3o for null, repita incluindo &cursor=<nextCursor> at\u00e9 terminar. data \u00e9 o valor original e pode ser objeto, lista, texto, n\u00famero, booleano ou null. O id externo e o etag pertencem ao portal; n\u00e3o substitua um campo id existente dentro de data.',
+      'Se nextCursor n\u00e3o for null, busque a pr\u00f3xima p\u00e1gina com &cursor=<nextCursor> somente quando o usu\u00e1rio pedir mais dados. N\u00e3o percorra todas as p\u00e1ginas automaticamente. data \u00e9 o valor original e pode ser objeto, lista, texto, n\u00famero, booleano ou null. O id externo e o etag pertencem ao servi\u00e7o; n\u00e3o substitua um campo id existente dentro de data.',
       '',
-      '3. Esta API n\u00e3o devolve o documento JSON original inteiro. Ela devolve os metadados dos grupos em /collections e os registros paginados em /records. Use cada campo data para alimentar o modelo interno da aplica\u00e7\u00e3o, mantendo a interface e as regras de neg\u00f3cio. kind=list indica um grupo com v\u00e1rios registros; kind=single indica um valor. count:0 representa um grupo vazio, n\u00e3o uma falha. Se faltarem grupos que a aplica\u00e7\u00e3o exigir, mostre os nomes ausentes.',
+      '3. Esta API n\u00e3o devolve o documento JSON original inteiro. Ela devolve os metadados dos grupos em /collections e os registros solicitados em /records. Adapte apenas os dados solicitados ao modelo da tela atual, mantendo a interface e as regras de neg\u00f3cio. kind=list indica um grupo com v\u00e1rios registros; kind=single indica um valor. count:0 representa um grupo vazio, n\u00e3o uma falha. Se faltarem grupos que a aplica\u00e7\u00e3o exigir, mostre os nomes ausentes.',
       '',
       '4. Para criar, envie POST para ' + db.url + '/collections/<id>/records com Content-Type: application/json. O corpo recebe diretamente o valor do registro, sem envelope data. Exemplo do corpo enviado:',
       '~~~json',
@@ -300,7 +309,7 @@ function mysqlPrompt(db, structure, mode = 'app') {
       '~~~json',
       JSON.stringify({ tables: [ { name: 'produtos', columns: [ { name: 'nome', dataType: 'varchar', columnType: 'varchar(120)', nullable: false, defaultValue: null } ], count: 1 } ] }, null, 2),
       '~~~',
-      'GET ' + db.url + '/tables/<tabela>/rows?limit=100&cursor=<cursor> retorna p\u00e1ginas com items e nextCursor. Cada item tem id, data e etag; use id externo nas rotas e preserve os campos que estiverem dentro de data.',
+      'Quando a tela precisar dos registros de uma tabela, GET ' + db.url + '/tables/<tabela>/rows?limit=25 retorna a primeira p\u00e1gina com items e nextCursor. Busque a pr\u00f3xima com &cursor=<nextCursor> somente quando o usu\u00e1rio pedir mais dados. Cada item tem id, data e etag; use id externo nas rotas e preserve os campos que estiverem dentro de data.',
       '~~~json',
       JSON.stringify({ items: [ { id: '1', data: { nome: 'Caderno' }, etag: '"1"' } ], nextCursor: null }, null, 2),
       '~~~',
@@ -341,12 +350,14 @@ Para acessar os dados, todas as requisições usam Authorization: Bearer <chave>
 
 API de tabelas:
 - GET ${db.url}/tables lista tabelas e colunas.
-- GET ${db.url}/tables/<tabela>/rows?limit=100&cursor=<cursor> lista registros paginados; cada item contém id, data e etag.
+- GET ${db.url}/tables/<tabela>/rows?limit=25 lista a primeira página; use &cursor=<nextCursor> apenas quando o usuário pedir a próxima. Cada item contém id, data e etag.
 - POST ${db.url}/tables/<tabela>/rows cria um registro JSON.
 - PUT ${db.url}/tables/<tabela>/rows/<id> altera o registro usando If-Match: <etag anterior>.
 - DELETE ${db.url}/tables/<tabela>/rows/<id> apaga um registro usando If-Match.
 
 ${apiDetails}
+
+${mysqlOnDemandRules(false)}
 
 Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro usam o formato {\"error\":\"mensagem\"}: 401 chave ausente/inv\u00e1lida; 403 sem permiss\u00e3o; 404 URL, banco ou grupo inexistente; 409 conflito de grava\u00e7\u00e3o; 413 limite excedido. Se fetch falhar sem resposta HTTP, informe falha de rede/CORS e preserve os dados ainda n\u00e3o salvos.
 
@@ -369,9 +380,11 @@ ${groups || '- Nenhum grupo.'}
 Tabelas personalizadas:
 ${tables || '- Nenhuma.'}
 
-${imported ? `Continue usando as coleções já importadas: GET ${db.url}/collections e GET/POST/PUT/DELETE em /collections/<id>/records. Reconstrua a estrutura do JSON original em memória e mantenha IDs e ETags para alterar somente itens modificados. Não mova nem descarte os dados importados.` : `Use as tabelas SQL existentes pela API: GET ${db.url}/tables; GET ${db.url}/tables/<tabela>/rows?limit=100&cursor=<cursor>; POST na mesma rota para criar; PUT ou DELETE em /rows/<id> com If-Match: <etag>.`}
+${imported ? `Use as coleções já importadas: GET ${db.url}/collections e GET/POST/PUT/DELETE em /collections/<id>/records. Adapte cada registro solicitado ao formato que a tela já espera, sem reconstruir o JSON completo no navegador. Mantenha IDs e ETags para alterar somente itens modificados. Não mova nem descarte os dados importados.` : `Use as tabelas SQL existentes pela API: GET ${db.url}/tables; GET ${db.url}/tables/<tabela>/rows?limit=25 para a primeira página; POST na mesma rota para criar; PUT ou DELETE em /rows/<id> com If-Match: <etag>.`}
 
 ${apiDetails}
+
+${mysqlOnDemandRules(imported)}
 
 Antes de interpretar qualquer resposta, confira response.ok. Respostas de erro usam o formato {"error":"mensagem"}: 401 chave ausente/inv\u00e1lida; 403 sem permiss\u00e3o; 404 URL, banco ou grupo inexistente; 409 conflito de grava\u00e7\u00e3o; 413 limite excedido. Se fetch falhar sem resposta HTTP, informe falha de rede/CORS e preserve os dados ainda n\u00e3o salvos.
 

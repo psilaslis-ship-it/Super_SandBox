@@ -45,6 +45,8 @@ Em processadores antigos sem suporte a `x86-64-v2`, a imagem padrão `mysql:8.4`
 
 Os campos de cada item ficam em uma coluna JSON do MySQL, dentro de tabelas organizadas por banco, grupo e registro. Isso preserva estruturas arbitrárias sem impor uma remodelagem ao site. A melhora de velocidade depende de o site adaptado usar paginação e operações por item; buscas avançadas por campos específicos podem exigir índices adicionais no futuro.
 
+O prompt e o `.md` de adaptação para MySQL instruem o assistente a buscar apenas os metadados na conexão e carregar páginas de registros conforme o usuário navega. A API pagina **registros**, não partes internas de um registro: uma coleção `kind=single` que contém um objeto de 33 MB ainda transfere esse objeto inteiro quando é lida. A API atual também não oferece busca ou agregação global no servidor. Nesses casos, as instruções exigem que o assistente relate a limitação e proponha uma mudança de estrutura ou consulta no servidor sem alterar silenciosamente os dados ou apresentar resultados parciais como completos. Bancos JSON antigos continuam usando o GET integral.
+
 O banco vazio começa sem tabelas; o arquivo `estrutura.sql` define as tabelas que a aplicação usará. Os bancos JSON cadastrados em versões anteriores continuam na modalidade antiga; não há conversão automática nem perda dos arquivos anteriores.
 
 ## Arquivos SQL
