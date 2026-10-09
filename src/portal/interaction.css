@@ -1,0 +1,74 @@
+.spinner,
+.status.is-busy::before,
+.record-list.is-loading::before,
+button.is-busy::before {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .75s linear infinite;
+  vertical-align: -3px;
+}
+
+.startup-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 220px;
+  color: #c5f36d;
+  font-weight: 700;
+}
+
+.status.is-busy::before,
+.record-list.is-loading::before,
+button.is-busy::before {
+  content: "";
+  margin-right: 9px;
+}
+
+.record-list.is-loading {
+  display: flex;
+  align-items: center;
+  color: #aabac5;
+  padding: 16px 4px;
+}
+
+.file-drop {
+  transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+
+.file-drop strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-drop.is-dragover {
+  background: #234536;
+  border-color: #c5f36d;
+  box-shadow: 0 0 0 4px #c5f36d30;
+}
+
+.file-drop.is-dragover .upload-icon {
+  transform: translateY(-3px);
+}
+
+.upload-form[aria-busy="true"] .file-drop {
+  opacity: .7;
+  pointer-events: none;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .status.is-busy::before,
+  .record-list.is-loading::before,
+  button.is-busy::before { animation: none; }
+  .file-drop { transition: none; }
+}

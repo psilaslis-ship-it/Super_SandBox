@@ -7,6 +7,7 @@
   <title>Super Sandbox</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/interaction.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -16,6 +17,7 @@
   </header>
 
   <main>
+    <div id="startup-loading" class="startup-loading" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Carregando o portal…</div>
     <section id="auth-panel" class="auth-panel" hidden>
       <span class="eyebrow">ACESSO AO PORTAL</span>
       <h1 id="auth-title">Entrar</h1>
@@ -40,7 +42,7 @@
       <section class="panel" aria-labelledby="databases-title">
         <div class="panel-heading"><span class="section-number">01 / BANCO DE DADOS</span><h2 id="databases-title">Cadastrar JSON</h2></div>
         <form id="database-form" class="upload-form">
-          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Escolher arquivo JSON</strong><small id="database-file-limit">Limite configurado pelo servidor · salvo no volume Docker</small></label>
+          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Clique ou arraste um JSON aqui</strong><small id="database-file-limit">Limite configurado pelo servidor · salvo no volume Docker</small></label>
           <input id="database-file" type="file" accept=".json,application/json" required>
           <div class="form-bottom"><span id="database-status" class="status" role="status" aria-live="polite">O arquivo fica separado do ZIP da aplicação.</span><button type="submit">Cadastrar banco</button></div>
         </form>
@@ -64,7 +66,7 @@
       <section class="panel" aria-labelledby="upload-title">
         <div class="panel-heading"><span class="section-number">03 / APLICAÇÃO</span><h2 id="upload-title">Publicar site</h2></div>
         <form id="upload-form" class="upload-form">
-          <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Escolher ZIP do site</strong><small>Recursos com caminhos relativos · até 50 MB · sem db_global</small></label>
+          <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Clique ou arraste um ZIP aqui</strong><small>Recursos com caminhos relativos · até 50 MB · sem db_global</small></label>
           <input id="zip-file" type="file" accept=".zip,application/zip" required>
           <div class="form-bottom"><span id="upload-status" class="status" role="status" aria-live="polite">O site já deve conter o endereço do banco no código.</span><button type="submit">Publicar aplicação</button></div>
         </form>

@@ -23,6 +23,36 @@ function textNode(tag, text, className) {
   return node;
 }
 
+function setBusy(button, status, message, form) {
+  button.disabled = true;
+  button.classList.add('is-busy');
+  if (form) {
+    form.setAttribute('aria-busy', 'true');
+    const fileInput = form.querySelector('input[type=file]');
+    if (fileInput) fileInput.disabled = true;
+  }
+  if (status) {
+    status.textContent = message;
+    status.classList.add('is-busy');
+  }
+}
+
+function clearBusy(button, status, form) {
+  button.disabled = false;
+  button.classList.remove('is-busy');
+  if (form) {
+    form.removeAttribute('aria-busy');
+    const fileInput = form.querySelector('input[type=file]');
+    if (fileInput) fileInput.disabled = false;
+  }
+  if (status) status.classList.remove('is-busy');
+}
+
+function showListLoading(list, message) {
+  list.textContent = message;
+  list.classList.add('is-loading');
+}
+
 async function copy(value, button) {
   try {
     await navigator.clipboard.writeText(value);
@@ -43,6 +73,7 @@ $('#copy-result').addEventListener('click', () => copy($('#result-url').href, $(
 $('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt')));
 
 function showAuth(setup) {
+  $('#startup-loading').hidden = true;
   setupRequired = setup;
   authPanel.hidden = false;
   dashboard.hidden = true;
@@ -60,6 +91,7 @@ function showAuth(setup) {
 }
 
 async function showDashboard() {
+  $('#startup-loading').hidden = true;
   authPanel.hidden = true;
   dashboard.hidden = false;
   $('#logout').hidden = false;
@@ -74,22 +106,28 @@ authForm.addEventListener('submit', async event => {
     return;
   }
   const button = $('#auth-button');
-  button.disabled = true;
+  const status = $('#auth-status');
+  setBusy(button, status, setupRequired ? 'Criando acesso…' : 'Entrando…', authForm);
   try {
     await api(setupRequired ? '/api/setup' : '/api/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }),
     });
     authForm.reset();
     await showDashboard();
-  } catch (error) { $('#auth-status').textContent = error.message; }
-  finally { button.disabled = false; }
+  } catch (error) { status.textContent = error.message; }
+  finally { clearBusy(button, status, authForm); }
 });
 
 $('#logout').addEventListener('click', async () => {
-  await api('/api/logout', { method: 'POST' });
-  $('#secret-result').hidden = true;
-  $('#secret-token').textContent = '';
-  showAuth(false);
+  const button = $('#logout');
+  setBusy(button);
+  try {
+    await api('/api/logout', { method: 'POST' });
+    $('#secret-result').hidden = true;
+    $('#secret-token').textContent = '';
+    showAuth(false);
+  } catch (error) { alert(error.message); }
+  finally { clearBusy(button); }
 });
 
 function promptFor(db) {
@@ -120,6 +158,7 @@ function updatePrompt() {
 promptSelect.addEventListener('change', updatePrompt);
 
 async function loadDatabases() {
+  showListLoading(databaseList, 'Carregando bancos…');
   try {
     databases = await api('/api/databases');
     $('#database-count').textContent = `${databases.length} cadastrado${databases.length === 1 ? '' : 's'}`;
@@ -132,6 +171,7 @@ async function loadDatabases() {
     if (!databases.length) { databaseList.append(textNode('p', 'Nenhum banco cadastrado ainda.', 'empty')); return; }
     for (const db of databases) databaseList.append(renderDatabase(db));
   } catch (error) { databaseList.textContent = error.message; }
+  finally { databaseList.classList.remove('is-loading'); }
 }
 
 function renderDatabase(db) {
@@ -156,7 +196,9 @@ function renderDatabase(db) {
   const create = textNode('button', 'Criar chave'); create.type = 'submit';
   form.append(label, permission, create);
   form.addEventListener('submit', async event => {
-    event.preventDefault(); create.disabled = true;
+    event.preventDefault();
+    setBusy(create);
+    create.setAttribute('aria-label', 'Criando chave');
     try {
       const payload = await api(`/api/databases/${db.id}/keys`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -165,7 +207,7 @@ function renderDatabase(db) {
       showSecret(payload.token, `Chave criada para ${payload.key.label}`);
       await loadDatabases();
     } catch (error) { alert(error.message); }
-    finally { create.disabled = false; }
+    finally { clearBusy(create); create.removeAttribute('aria-label'); }
   });
   const keys = textNode('div', '', 'key-list');
   for (const key of db.keys) {
@@ -174,8 +216,10 @@ function renderDatabase(db) {
     const revoke = textNode('button', 'Revogar'); revoke.type = 'button';
     revoke.addEventListener('click', async () => {
       if (!confirm(`Revogar a chave de ${key.label}? O acesso será interrompido.`)) return;
+      setBusy(revoke);
       try { await api(`/api/databases/${db.id}/keys/${key.id}`, { method: 'DELETE' }); await loadDatabases(); }
       catch (error) { alert(error.message); }
+      finally { clearBusy(revoke); }
     });
     row.append(revoke); keys.append(row);
   }
@@ -185,6 +229,7 @@ function renderDatabase(db) {
 }
 
 async function loadApps() {
+  showListLoading(appsList, 'Carregando aplicações…');
   try {
     const apps = await api('/api/apps');
     appsList.replaceChildren();
@@ -202,47 +247,103 @@ async function loadApps() {
       appsList.append(record);
     }
   } catch (error) { appsList.textContent = error.message; }
+  finally { appsList.classList.remove('is-loading'); }
 }
 
-for (const [input, label, empty] of [
-  [$('#database-file'), $('#database-file-label'), 'Escolher arquivo JSON'],
-  [$('#zip-file'), $('#zip-file-label'), 'Escolher ZIP do site'],
-]) input.addEventListener('change', () => { label.textContent = input.files[0]?.name || empty; });
+for (const [input, label, status, extension, empty] of [
+  [$('#database-file'), $('#database-file-label'), $('#database-status'), '.json', 'Clique ou arraste um JSON aqui'],
+  [$('#zip-file'), $('#zip-file-label'), $('#upload-status'), '.zip', 'Clique ou arraste um ZIP aqui'],
+]) {
+  const dropzone = input.previousElementSibling;
+  const initialStatus = status.textContent;
+  let dragDepth = 0;
+
+  function updateSelection() {
+    const file = input.files[0];
+    if (file && !file.name.toLowerCase().endsWith(extension)) {
+      input.value = '';
+      label.textContent = empty;
+      status.textContent = `Selecione um arquivo ${extension.toUpperCase()}.`;
+      return;
+    }
+    label.textContent = file?.name || empty;
+    status.textContent = file ? `${file.name} pronto para envio.` : initialStatus;
+  }
+
+  input.addEventListener('change', updateSelection);
+  dropzone.addEventListener('dragenter', event => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    dragDepth += 1;
+    dropzone.classList.add('is-dragover');
+  });
+  dropzone.addEventListener('dragover', event => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  dropzone.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) dropzone.classList.remove('is-dragover');
+  });
+  dropzone.addEventListener('drop', event => {
+    event.preventDefault();
+    dragDepth = 0;
+    dropzone.classList.remove('is-dragover');
+    if (input.closest('form').getAttribute('aria-busy') === 'true') return;
+    if (event.dataTransfer.files.length !== 1) {
+      input.value = '';
+      label.textContent = empty;
+      status.textContent = 'Arraste apenas um arquivo por vez.';
+      return;
+    }
+    input.files = event.dataTransfer.files;
+    updateSelection();
+  });
+}
+
+for (const type of ['dragover', 'drop']) document.addEventListener(type, event => {
+  if (Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault();
+});
 
 $('#database-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const uploadForm = event.currentTarget;
   const file = $('#database-file').files[0]; if (!file) return;
-  const button = event.currentTarget.querySelector('button[type=submit]'); button.disabled = true;
-  $('#database-status').textContent = 'Validando e cadastrando o JSON…';
+  const button = uploadForm.querySelector('button[type=submit]');
+  const status = $('#database-status');
+  setBusy(button, status, 'Enviando e validando o JSON…', uploadForm);
   try {
     const form = new FormData(); form.append('file', file);
     const payload = await api('/api/databases', { method: 'POST', body: form });
-    $('#database-status').textContent = 'Banco cadastrado.';
+    status.textContent = 'Banco cadastrado.';
     showSecret(payload.token, `Chave inicial de ${payload.database.name}`);
-    event.currentTarget.reset(); $('#database-file-label').textContent = 'Escolher arquivo JSON';
+    uploadForm.reset(); $('#database-file-label').textContent = 'Clique ou arraste um JSON aqui';
     await loadDatabases();
     promptSelect.value = payload.database.id; updatePrompt();
-  } catch (error) { $('#database-status').textContent = error.message; }
-  finally { button.disabled = false; }
+  } catch (error) { status.textContent = error.message; }
+  finally { clearBusy(button, status, uploadForm); }
 });
 
 $('#upload-form').addEventListener('submit', async event => {
   event.preventDefault();
+  const uploadForm = event.currentTarget;
   const file = $('#zip-file').files[0]; if (!file) return;
-  const button = event.currentTarget.querySelector('button[type=submit]'); button.disabled = true;
+  const button = uploadForm.querySelector('button[type=submit]');
+  const status = $('#upload-status');
+  setBusy(button, status, 'Enviando e validando o ZIP…', uploadForm);
   $('#upload-result').hidden = true;
-  $('#upload-status').textContent = 'Enviando e validando o ZIP…';
   try {
     const form = new FormData(); form.append('file', file);
     const app = await api('/api/apps', { method: 'POST', body: form });
-    $('#upload-status').textContent = 'Aplicação publicada.';
+    status.textContent = 'Aplicação publicada.';
     $('#result-name').textContent = app.name;
     $('#result-url').href = app.url; $('#result-url').textContent = app.url;
     $('#upload-result').hidden = false;
-    event.currentTarget.reset(); $('#zip-file-label').textContent = 'Escolher ZIP do site';
+    uploadForm.reset(); $('#zip-file-label').textContent = 'Clique ou arraste um ZIP aqui';
     await loadApps();
-  } catch (error) { $('#upload-status').textContent = error.message; }
-  finally { button.disabled = false; }
+  } catch (error) { status.textContent = error.message; }
+  finally { clearBusy(button, status, uploadForm); }
 });
 
 api('/api/session').then(session => {
