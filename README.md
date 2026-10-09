@@ -32,6 +32,8 @@ Para testar em um Debian na sua rede, siga o [guia de implantação local](docs/
 
 O proprietário pode criar chaves distintas para cada pessoa ou dispositivo, com permissão de leitura ou de leitura e gravação, e revogá-las. Uma chave dá acesso somente ao banco ao qual pertence. Quem tiver uma chave válida pode acessar esse banco; cuide dela como uma senha. Como a aplicação executa JavaScript no navegador, use somente código em que você confia e não embuta a chave em seus arquivos.
 
+Ao criar uma chave adicional, o portal abre uma janela com o valor completo e o botão **Copiar chave**. Guarde o valor antes de fechar: a lista mostra depois apenas o nome e a permissão. Se perder a chave, crie outra e revogue a antiga.
+
 Na lista de bancos, **Apagar banco** pede confirmação e remove definitivamente o JSON e todas as suas chaves. Sites já publicados continuam no portal, mas perdem acesso ao banco apagado. Faça o download do JSON antes de excluir se precisar guardar uma cópia.
 
 ## API do banco

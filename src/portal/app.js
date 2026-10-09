@@ -6,6 +6,7 @@ const databaseList = $('#database-list');
 const appsList = $('#apps-list');
 const promptSelect = $('#prompt-database');
 const promptBox = $('#claude-prompt');
+const keyDialog = $('#key-dialog');
 let setupRequired = false;
 let databases = [];
 let visibleSecretDatabaseId = null;
@@ -110,7 +111,21 @@ function showSecret(token, title, databaseId) {
   $('#secret-result').hidden = false;
   $('#secret-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
+function showNewKey(token, label) {
+  $('#key-dialog-title').textContent = `Chave criada para ${label}`;
+  $('#key-dialog-token').textContent = token;
+  keyDialog.showModal();
+}
 $('#copy-token').addEventListener('click', () => copy($('#secret-token').textContent, $('#copy-token'), $('#secret-token')));
+$('#key-dialog-copy').addEventListener('click', () => copy($('#key-dialog-token').textContent, $('#key-dialog-copy'), $('#key-dialog-token')));
+$('#key-dialog-close').addEventListener('click', () => keyDialog.close());
+keyDialog.addEventListener('cancel', event => event.preventDefault());
+keyDialog.addEventListener('close', () => {
+  $('#key-dialog-token').textContent = '';
+  const button = $('#key-dialog-copy');
+  clearTimeout(copyTimers.get(button));
+  button.textContent = 'Copiar chave';
+});
 $('#copy-result').addEventListener('click', () => copy($('#result-url').href, $('#copy-result'), $('#result-url')));
 $('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt'), promptBox));
 
@@ -264,8 +279,8 @@ function renderDatabase(db) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: label.value, permission: permission.value }),
       });
-      showSecret(payload.token, `Chave criada para ${payload.key.label}`, db.id);
       await loadDatabases();
+      showNewKey(payload.token, payload.key.label);
     } catch (error) { alert(error.message); }
     finally { clearBusy(create); create.removeAttribute('aria-label'); }
   });
