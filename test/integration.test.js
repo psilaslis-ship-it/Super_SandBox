@@ -307,3 +307,48 @@ test('modo LAN retorna URLs por IP e separa portal e aplicações por porta', as
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+test('limites do .env valem para bancos e sites, com erro claro sem MySQL', async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), 'super-sandbox-limits-'));
+  const port = await freePort();
+  const child = spawn(process.execPath, ['src/server.js'], {
+    cwd: project, env: { ...process.env, MYSQL_HOST: '', DATA_DIR: dataDir, PORT: String(port),
+      PUBLIC_PORT: String(port), MAX_DATABASES: '1', MAX_APPS: '1' }, stdio: 'pipe',
+  });
+  try {
+    let ready = false;
+    for (let i = 0; i < 60; i++) {
+      if (child.exitCode !== null) throw new Error('Servidor encerrou antes de iniciar.');
+      try { ready = (await http(port, 'localhost', 'GET', '/health')).status === 200; }
+      catch { /* aguardando */ }
+      if (ready) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.equal(ready, true);
+    const session = JSON.parse((await http(port, 'localhost', 'GET', '/api/session')).body);
+    assert.equal(session.maxDatabases, 1);
+    assert.equal(session.maxApps, 1);
+    assert.equal(session.mysqlAvailable, false);
+    const setup = await http(port, 'localhost', 'POST', '/api/setup', JSON.stringify({ password: 'senha-de-teste-123' }),
+      { Origin: `http://localhost:${port}`, 'Content-Type': 'application/json' });
+    const cookie = setup.headers['set-cookie'][0].split(';')[0];
+    const mysql = await http(port, 'localhost', 'POST', '/api/databases/mysql', JSON.stringify({ name: 'Novo' }),
+      { Cookie: cookie, Origin: `http://localhost:${port}`, 'Content-Type': 'application/json' });
+    assert.equal(mysql.status, 503);
+    const firstDb = await upload(port, '/api/databases', 'primeiro.json', Buffer.from('{}'), cookie);
+    assert.equal(firstDb.status, 201);
+    const secondDb = await upload(port, '/api/databases', 'segundo.json', Buffer.from('{}'), cookie);
+    assert.equal(secondDb.status, 409);
+    const site = await zip({ 'index.html': '<h1>Site</h1>' });
+    const firstSite = await upload(port, '/api/apps', 'primeiro.zip', site, cookie);
+    assert.equal(firstSite.status, 201);
+    assert.equal((await upload(port, '/api/apps', 'segundo.zip', site, cookie)).status, 409);
+    assert.equal((await http(port, 'localhost', 'DELETE', `/api/apps/${firstSite.body.id}`)).status, 401);
+    assert.equal((await http(port, 'localhost', 'DELETE', `/api/apps/${firstSite.body.id}`, null,
+      { Cookie: cookie, Origin: `http://localhost:${port}` })).status, 200);
+    assert.equal((await upload(port, '/api/apps', 'terceiro.zip', site, cookie)).status, 201);
+  } finally {
+    if (child.exitCode === null) { child.kill(); await new Promise(resolve => child.once('exit', resolve)); }
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});

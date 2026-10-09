@@ -39,7 +39,7 @@ sudo docker compose ps
 curl -fsS http://127.0.0.1:8080/health
 ```
 
-O último comando deve retornar `{"ok":true}`. Sem `.env`, o Compose vincula as portas a `127.0.0.1` e o portal não fica diretamente exposto na rede.
+O último comando deve retornar `{"ok":true}`. O Compose inicia também o MySQL, sem publicar a porta 3306, e cria senhas internas automaticamente. Sem `.env`, as portas do portal ficam vinculadas a `127.0.0.1`.
 
 ## 3. Abrir diretamente pelo IP na rede local
 
@@ -63,7 +63,7 @@ Troque `192.168.1.50` pelo IP real. No navegador de outro computador da mesma re
 
 O `.env` está no `.gitignore` e não acompanha `git pull` ou `git push`. Se o IP do Debian mudar, atualize os dois valores e execute `sudo docker compose up -d` novamente. O endereço do banco exibido no portal também passará a usar esse IP. Sites já gerados com `localhost` fixo precisam dessa referência atualizada e de um novo ZIP. No modo LAN, os recursos do site devem usar caminhos relativos, pois ele é servido sob `/apps/<id>/`.
 
-O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. O valor aparece na tela de cadastro. Reserve espaço livre no volume para o arquivo atual e uma cópia temporária durante as gravações.
+O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. Os limites de quantidade são `MAX_DATABASES=20` e `MAX_APPS=20`; ajuste os valores no mesmo `.env` se necessário. Um item individual do JSON importado pode ter até 16 MB. Reserve espaço livre nos volumes para os dados e arquivos temporários da importação.
 
 O tráfego HTTP da rede local não é criptografado. Use este modo em uma rede confiável para testes. Para acesso fora dela ou com dados sensíveis, configure HTTPS antes de compartilhar chaves.
 
@@ -79,7 +79,7 @@ Substitua `USUARIO` e `IP_DO_DEBIAN` somente no comando. Depois, abra **http://l
 
 Se estiver navegando diretamente no Debian, abra `http://localhost:8080` sem túnel.
 
-No primeiro acesso, crie a senha de proprietário. Cadastre um JSON, copie a chave de acesso exibida e, depois, publique um ZIP do site sem o JSON e sem a chave.
+No primeiro acesso, crie a senha de proprietário. Importe um JSON ou crie um banco vazio, copie a chave exibida e entregue ao Claude Code as instruções geradas pelo portal. Depois, publique o ZIP do site sem o JSON e sem a chave.
 
 ## 5. Verificar, atualizar e parar
 
@@ -96,10 +96,10 @@ git pull --ff-only
 sudo docker compose up --build -d
 ```
 
-Para parar os contêineres mantendo bancos, chaves e senha:
+Para parar os contêineres mantendo bancos, sites, chaves e senhas:
 
 ```bash
 sudo docker compose down
 ```
 
-Não use `down -v` se quiser preservar esses dados: essa opção apaga o volume.
+Não use `down -v` se quiser preservar esses dados: essa opção apaga os volumes `sandbox_data`, `mysql_data` e `mysql_secrets`.

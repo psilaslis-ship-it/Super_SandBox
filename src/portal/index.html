@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0c1421">
+  <meta name="theme-color" content="#190e12">
   <title>Super Sandbox</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/interaction.css">
   <script src="/app.js" defer></script>
 </head>
@@ -34,44 +34,55 @@
 
     <div id="dashboard" hidden>
       <section class="intro">
-        <div class="eyebrow"><span class="live-dot"></span> WORKSPACE</div>
-        <h1>Dados primeiro.<br><em>Aplicação depois.</em></h1>
-        <p>Cadastre um JSON, entregue ao Claude Code o endereço do banco e publique o site quando estiver pronto.</p>
+        <div class="eyebrow"><span class="live-dot"></span> SEU ESPAÇO DE TRABALHO</div>
+        <h1>Seus dados.<br><em>Seu site no ar.</em></h1>
+        <p>Prepare os dados, adapte seu site com as instruções prontas e publique quando quiser.</p>
       </section>
 
       <section class="panel" aria-labelledby="databases-title">
-        <div class="panel-heading"><span class="section-number">01 / BANCO DE DADOS</span><h2 id="databases-title">Cadastrar JSON</h2></div>
+        <div class="panel-heading"><span class="section-number">ETAPA 01</span><h2 id="databases-title">Prepare seus dados</h2></div>
+        <p class="section-copy">Escolha como começar. Seus dados ficarão disponíveis para o seu site com acesso protegido por chave.</p>
+        <div class="choice-grid" role="group" aria-label="Como deseja começar">
+          <button id="choice-import" class="choice-card is-selected" type="button" aria-pressed="true"><span class="choice-icon">↥</span><strong>Já tenho meus dados</strong><small>Envie seu arquivo JSON. Organizaremos os dados para o novo banco.</small></button>
+          <button id="choice-empty" class="choice-card" type="button" aria-pressed="false"><span class="choice-icon">＋</span><strong>Começar do zero</strong><small>Crie um espaço vazio e prepare seu site para preenchê-lo.</small></button>
+        </div>
         <form id="database-form" class="upload-form">
-          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Clique ou arraste um JSON aqui</strong><small id="database-file-limit">Limite configurado pelo servidor · salvo no volume Docker</small></label>
+          <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Clique ou arraste seu arquivo JSON aqui</strong><small id="database-file-limit">Limite configurado pelo portal</small></label>
           <input id="database-file" type="file" accept=".json,application/json" required>
-          <div class="form-bottom"><span id="database-status" class="status" role="status" aria-live="polite">O arquivo fica separado do ZIP da aplicação.</span><button type="submit">Cadastrar banco</button></div>
+          <div class="form-bottom"><span id="database-status" class="status" role="status" aria-live="polite">Seus dados serão mantidos após a importação.</span><button type="submit">Importar dados</button></div>
+        </form>
+        <form id="empty-database-form" class="empty-form" hidden>
+          <label for="empty-database-name">Como quer chamar este espaço?</label>
+          <input id="empty-database-name" type="text" maxlength="100" placeholder="Ex.: Controle de estoque" required>
+          <div class="form-bottom"><span id="empty-database-status" class="status" role="status" aria-live="polite">Você poderá adicionar informações pelo seu site.</span><button type="submit">Criar espaço de dados</button></div>
         </form>
         <div id="secret-result" class="secret-result" hidden>
           <div class="secret-heading"><strong id="secret-title">Chave criada</strong><span>Guarde em local seguro. Você também poderá consultá-la na lista abaixo.</span></div>
           <div class="copy-field"><code id="secret-token"></code><button id="copy-token" type="button">Copiar chave</button></div>
         </div>
-        <div class="subheading"><h3>Bancos cadastrados</h3><span id="database-count"></span></div>
+        <div class="subheading"><h3>Meus dados</h3><span id="database-count"></span></div>
         <div id="database-list" class="record-list"></div>
       </section>
 
       <section class="panel" aria-labelledby="prompt-title">
-        <div class="panel-heading"><span class="section-number">02 / INTEGRAÇÃO</span><h2 id="prompt-title">Instrução para o Claude Code</h2></div>
-        <p class="section-copy">Escolha um banco para gerar a instrução. Ela inclui o endereço público da API, sem incluir a chave privada.</p>
-        <label for="prompt-database">Banco de dados</label>
+        <div class="panel-heading"><span class="section-number">ETAPA 02</span><h2 id="prompt-title">Adapte seu site</h2></div>
+        <p class="section-copy">Escolha seus dados e entregue estas instruções ao Claude Code. Ele ajustará a forma de ler e salvar, preservando as telas e as regras do seu site.</p>
+        <label for="prompt-database">Escolha os dados</label>
         <select id="prompt-database"><option value="">Selecione um banco</option></select>
-        <textarea id="claude-prompt" readonly spellcheck="false" placeholder="Cadastre um JSON para gerar a instrução."></textarea>
-        <button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instrução</button>
+        <textarea id="claude-prompt" readonly spellcheck="false" placeholder="Escolha seus dados para ver as instruções."></textarea>
+        <div class="prompt-actions"><button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instruções</button><button id="download-prompt" class="secondary-button" type="button" disabled>Baixar arquivo .md</button></div>
       </section>
 
       <section class="panel" aria-labelledby="upload-title">
-        <div class="panel-heading"><span class="section-number">03 / APLICAÇÃO</span><h2 id="upload-title">Publicar site</h2></div>
+        <div class="panel-heading"><span class="section-number">ETAPA 03</span><h2 id="upload-title">Publique seu site</h2></div>
+        <p class="section-copy">Quando estiver pronto, envie o site em um arquivo ZIP. Você receberá um link para acessá-lo.</p>
         <form id="upload-form" class="upload-form">
-          <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Clique ou arraste um ZIP aqui</strong><small>Recursos com caminhos relativos · até 50 MB · sem db_global</small></label>
+          <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Clique ou arraste seu site em ZIP aqui</strong><small>Até 50 MB</small></label>
           <input id="zip-file" type="file" accept=".zip,application/zip" required>
-          <div class="form-bottom"><span id="upload-status" class="status" role="status" aria-live="polite">O site já deve conter o endereço do banco no código.</span><button type="submit">Publicar aplicação</button></div>
+          <div class="form-bottom"><span id="upload-status" class="status" role="status" aria-live="polite">Use as instruções acima antes de publicar.</span><button type="submit">Publicar site</button></div>
         </form>
         <div id="upload-result" class="result" hidden><strong id="result-name"></strong><div class="copy-field"><a id="result-url" target="_blank" rel="noopener"></a><button id="copy-result" type="button">Copiar URL</button></div></div>
-        <div class="subheading"><h3>Aplicações publicadas</h3></div>
+        <div class="subheading"><h3>Sites publicados</h3><span id="apps-count"></span></div>
         <div id="apps-list" class="record-list"></div>
       </section>
     </div>
@@ -83,6 +94,6 @@
     <div class="copy-field"><code id="key-dialog-token"></code><button id="key-dialog-copy" type="button">Copiar chave</button></div>
     <div class="dialog-actions"><button id="key-dialog-close" class="secondary-button" type="button">Fechar</button></div>
   </dialog>
-  <footer>Super Sandbox <span>·</span> JSONs e aplicações persistem no volume Docker.</footer>
+  <footer>Super Sandbox <span>·</span> Seu espaço para dados e sites.</footer>
 </body>
 </html>

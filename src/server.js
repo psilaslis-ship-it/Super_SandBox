@@ -7,9 +7,11 @@ import { randomBytes, scryptSync, timingSafeEqual, createHash, createCipheriv, c
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { isIP } from 'node:net';
+import { once } from 'node:events';
 import Busboy from 'busboy';
 import yauzl from 'yauzl';
 import { verifyFile } from 'stream-json/file/verifier.js';
+import { createMysqlStore } from './mysql-store.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const portalDir = path.join(here, 'portal');
@@ -34,13 +36,28 @@ if (!Number.isSafeInteger(maxJsonMb) || maxJsonMb < 1 || !Number.isSafeInteger(m
   throw new Error('MAX_JSON_MB deve ser um inteiro positivo válido.');
 }
 const maxJsonBytes = maxJsonMb * 1024 * 1024;
+function positiveLimit(name, fallback) {
+  const value = Number(process.env[name] || fallback);
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} deve ser um inteiro positivo.`);
+  return value;
+}
+const maxDatabases = positiveLimit('MAX_DATABASES', 20);
+const maxApps = positiveLimit('MAX_APPS', 20);
+const mysqlPassword = process.env.MYSQL_PASSWORD_FILE
+  ? fs.readFileSync(process.env.MYSQL_PASSWORD_FILE, 'utf8').trim()
+  : process.env.MYSQL_PASSWORD;
+const mysqlStore = createMysqlStore(process.env.MYSQL_HOST ? {
+  host: process.env.MYSQL_HOST, port: process.env.MYSQL_PORT,
+  user: process.env.MYSQL_USER || 'sandbox', password: mysqlPassword,
+  database: process.env.MYSQL_DATABASE || 'sandbox',
+} : null);
 const maxEntries = 2000;
 const sessions = new Map();
 const loginFailures = new Map();
 const dbLocks = new Map();
 const dbCors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type, If-Match',
   'Access-Control-Expose-Headers': 'ETag',
   'Access-Control-Allow-Private-Network': 'true',
@@ -294,7 +311,10 @@ async function upload(req, res) {
     const site = await inspectSite(path.join(tempApp, 'site'));
     const meta = { id, name: filename.replace(/\.zip$/i, ''), createdAt: new Date().toISOString(), ...site };
     await fsp.writeFile(path.join(tempApp, 'meta.json'), JSON.stringify(meta, null, 2));
-    await fsp.rename(tempApp, path.join(appsDir, id));
+    await withDbLock('catalog:apps', async () => {
+      if ((await listApps()).length >= maxApps) throw new HttpError(409, `Limite de ${maxApps} sites atingido.`);
+      await fsp.rename(tempApp, path.join(appsDir, id));
+    });
     json(res, 201, { ...meta, url: appUrl(id) });
   } finally {
     await Promise.allSettled([fsp.rm(tempZip, { force: true }), fsp.rm(tempApp, { recursive: true, force: true })]);
@@ -370,7 +390,8 @@ function parseJson(body) {
 
 async function authRoute(req, res, pathname) {
   if (pathname === '/api/session' && req.method === 'GET') {
-    return json(res, 200, { setupRequired: !(await ownerRecord()), authenticated: !!currentSession(req), maxJsonMb });
+    return json(res, 200, { setupRequired: !(await ownerRecord()), authenticated: !!currentSession(req),
+      maxJsonMb, maxDatabases, maxApps, mysqlAvailable: !!mysqlStore });
   }
   if (pathname === '/api/setup' && req.method === 'POST') {
     if (await ownerRecord()) throw new HttpError(409, 'O proprietário já foi configurado.');
@@ -410,6 +431,7 @@ async function authRoute(req, res, pathname) {
 function publicDatabase(meta) {
   return {
     id: meta.id, name: meta.name, createdAt: meta.createdAt,
+    kind: meta.kind || 'json', source: meta.source || 'legacy', summary: meta.summary || null,
     url: databaseUrl(meta.id),
     keys: meta.keys.map(({ id, label, permission, createdAt, sealedToken }) => ({ id, label, permission, createdAt, canReveal: !!sealedToken })),
   };
@@ -448,17 +470,113 @@ async function uploadDatabase(req, res, session) {
     await fsp.mkdir(tempDir);
     await fsp.rename(tempFile, path.join(tempDir, 'data.json'));
     await fsp.writeFile(path.join(tempDir, 'meta.json'), JSON.stringify(meta, null, 2));
-    await fsp.rename(tempDir, path.join(databasesDir, id));
+    await withDbLock('catalog:databases', async () => {
+      if ((await listDatabases()).length >= maxDatabases) throw new HttpError(409, `Limite de ${maxDatabases} bancos atingido.`);
+      await fsp.rename(tempDir, path.join(databasesDir, id));
+    });
     return json(res, 201, { database: publicDatabase(meta), token });
   } finally {
     await Promise.allSettled([fsp.rm(tempFile, { force: true }), fsp.rm(tempDir, { recursive: true, force: true })]);
   }
 }
 
+function requireMysql() {
+  if (!mysqlStore) throw new HttpError(503, 'O serviço de dados ainda não está disponível. Inicie o portal com o MySQL.');
+  return mysqlStore;
+}
+
+function initialDatabaseMeta(id, name, session, source, summary = null) {
+  const token = randomBytes(32).toString('base64url');
+  const now = new Date().toISOString();
+  const keyId = randomBytes(6).toString('hex');
+  const meta = { id, name, kind: 'mysql', source, summary, createdAt: now, keys: [{
+    id: keyId, label: 'Chave inicial', permission: 'write', hash: hashToken(token),
+    sealedToken: sealToken(token, session.encryptionKey, id, keyId), createdAt: now,
+  }] };
+  return { meta, token };
+}
+
+async function createMysqlDatabase(req, res, session, imported) {
+  const store = requireMysql();
+  const id = randomBytes(8).toString('hex');
+  const tempFile = path.join(tmpDir, `${id}.json`);
+  const tempDir = path.join(tmpDir, id);
+  let committed = false;
+  try {
+    let name;
+    let summary = null;
+    if (imported) {
+      name = await receiveFile(req, tempFile, '.json', maxJsonBytes);
+      await validateJsonFile(tempFile);
+      summary = await store.importFile(id, tempFile);
+    } else {
+      const input = parseJson(await readBody(req, 65536));
+      name = input.name;
+      if (typeof name !== 'string' || !name.trim() || name.length > 100) {
+        throw new HttpError(400, 'Dê um nome de até 100 caracteres para seus dados.');
+      }
+      name = name.trim();
+      await store.addCollection(id, 'Dados');
+      summary = { collections: 1, records: 0, rootType: 'object' };
+    }
+    const { meta, token } = initialDatabaseMeta(id, name, session, imported ? 'imported' : 'empty', summary);
+    await fsp.mkdir(tempDir);
+    await fsp.writeFile(path.join(tempDir, 'meta.json'), JSON.stringify(meta, null, 2));
+    await withDbLock('catalog:databases', async () => {
+      if ((await listDatabases()).length >= maxDatabases) throw new HttpError(409, `Limite de ${maxDatabases} bancos atingido.`);
+      await fsp.rename(tempDir, path.join(databasesDir, id));
+      committed = true;
+    });
+    return json(res, 201, { database: publicDatabase(meta), token });
+  } finally {
+    if (!committed) await store.deleteDatabase(id).catch(error => console.error('Falha ao limpar banco incompleto:', error));
+    await Promise.allSettled([fsp.rm(tempFile, { force: true }), fsp.rm(tempDir, { recursive: true, force: true })]);
+  }
+}
+
+async function exportMysqlDatabase(res, meta) {
+  const store = requireMysql();
+  const groups = await store.collections(meta.id);
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${meta.id}.json"`, 'Cache-Control': 'no-store' });
+  async function write(chunk) { if (!res.write(chunk)) await once(res, 'drain'); }
+  async function writeGroup(group) {
+    if (group.kind === 'list') await write('[');
+    let cursor = 0;
+    let first = true;
+    do {
+      const page = await store.records(meta.id, group.id, cursor, 100);
+      for (const item of page.items) {
+        if (!first) await write(',');
+        await write(JSON.stringify(item.data));
+        first = false;
+      }
+      cursor = page.nextCursor;
+    } while (cursor !== null);
+    if (group.kind === 'list') await write(']');
+    else if (first) await write('null');
+  }
+  if (meta.summary?.rootType === 'array' || meta.summary?.rootType === 'scalar') {
+    if (groups[0]) await writeGroup(groups[0]);
+    else await write(meta.summary.rootType === 'array' ? '[]' : 'null');
+  } else {
+    await write('{');
+    for (let i = 0; i < groups.length; i++) {
+      if (i) await write(',');
+      await write(`${JSON.stringify(groups[i].name)}:`);
+      await writeGroup(groups[i]);
+    }
+    await write('}');
+  }
+  res.end();
+}
+
 async function databaseManagement(req, res, pathname, session) {
   if (pathname === '/api/databases' && req.method === 'GET') return json(res, 200, await listDatabases());
   if (pathname === '/api/databases' && req.method === 'POST') return uploadDatabase(req, res, session);
-  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|keys)(?:\/([a-f0-9]{12})(?:\/(reveal|rotate))?)?)?$/.exec(pathname);
+  if (pathname === '/api/databases/import' && req.method === 'POST') return createMysqlDatabase(req, res, session, true);
+  if (pathname === '/api/databases/mysql' && req.method === 'POST') return createMysqlDatabase(req, res, session, false);
+  const match = /^\/api\/databases\/([a-f0-9]{16})(?:\/(download|structure|keys)(?:\/([a-f0-9]{12})(?:\/(reveal|rotate))?)?)?$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
   const [, id, action, keyId, keyAction] = match;
   const { dir, meta } = await getDatabase(id);
@@ -466,11 +584,17 @@ async function databaseManagement(req, res, pathname, session) {
   if (!action && req.method === 'DELETE') {
     return withDbLock(id, async () => {
       await getDatabase(id);
+      if (meta.kind === 'mysql') await requireMysql().deleteDatabase(id);
       await fsp.rm(dir, { recursive: true });
       return json(res, 200, { ok: true });
     });
   }
+  if (action === 'structure' && req.method === 'GET') {
+    if (meta.kind !== 'mysql') throw new HttpError(404, 'Este banco usa o formato JSON anterior.');
+    return json(res, 200, { ...publicDatabase(meta), collections: await requireMysql().collections(id) });
+  }
   if (action === 'download' && req.method === 'GET') {
+    if (meta.kind === 'mysql') return exportMysqlDatabase(res, meta);
     const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
     try {
       const stat = await handle.stat();
@@ -527,17 +651,73 @@ async function databaseManagement(req, res, pathname, session) {
 }
 
 async function databaseAccess(req, res, pathname) {
-  const match = /^\/api\/db-access\/([a-f0-9]{16})$/.exec(pathname);
+  const match = /^\/api\/db-access\/([a-f0-9]{16})(?:\/collections(?:\/([a-f0-9]{16})(?:\/records(?:\/([a-f0-9]{16}))?)?)?)?$/.exec(pathname);
   if (!match) throw new HttpError(404, 'Endereço não encontrado.');
   const cors = dbCors;
   if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
-  if (!['GET', 'PUT'].includes(req.method)) throw new HttpError(405, 'Método não permitido.');
-  const [, id] = match;
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) throw new HttpError(405, 'Método não permitido.');
+  const [, id, collectionId, recordId] = match;
   const { dir, meta } = await getDatabase(id);
   const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization || '');
   const key = bearer && meta.keys.find(item => item.hash === hashToken(bearer[1]));
   if (!key) return json(res, 401, { error: 'Chave de acesso inválida.' }, cors);
-  if (req.method === 'PUT' && key.permission !== 'write') return json(res, 403, { error: 'Chave somente de leitura.' }, cors);
+  if (req.method !== 'GET' && key.permission !== 'write') return json(res, 403, { error: 'Chave somente de leitura.' }, cors);
+  if (meta.kind === 'mysql') {
+    const store = requireMysql();
+    const suffix = pathname.slice(`/api/db-access/${id}`.length);
+    async function operation() {
+      if ((suffix === '' || suffix === '/collections') && req.method === 'GET') {
+        return json(res, 200, { collections: await store.collections(id) }, cors);
+      }
+      if (suffix === '/collections' && req.method === 'POST') {
+        const { name } = parseJson(await readBody(req, 65536));
+        if ((await store.collections(id)).length >= 200) throw new HttpError(409, 'Limite de grupos de dados atingido.');
+        const group = await store.addCollection(id, name);
+        return json(res, 201, group, cors);
+      }
+      if (collectionId && !suffix.includes('/records') && req.method === 'GET') {
+        return json(res, 200, await store.collection(id, collectionId), cors);
+      }
+      if (collectionId && suffix.endsWith('/records') && req.method === 'GET') {
+        const url = new URL(req.url, 'http://internal');
+        const cursor = Number(url.searchParams.get('cursor') || 0);
+        const limit = Number(url.searchParams.get('limit') || 50);
+        if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+          throw new HttpError(400, 'Paginação inválida. Use limit entre 1 e 100.');
+        }
+        return json(res, 200, await store.records(id, collectionId, cursor, limit), cors);
+      }
+      if (collectionId && suffix.endsWith('/records') && req.method === 'POST') {
+        const body = await readBody(req, 16 * 1024 * 1024);
+        parseJson(body);
+        return json(res, 201, await store.addRecord(id, collectionId, body.toString('utf8')), cors);
+      }
+      if (collectionId && recordId && req.method === 'GET') {
+        const item = await store.record(id, collectionId, recordId);
+        return json(res, 200, item, { ...cors, ETag: item.etag });
+      }
+      if (collectionId && recordId && req.method === 'PUT') {
+        const body = await readBody(req, 16 * 1024 * 1024);
+        parseJson(body);
+        const item = await store.updateRecord(id, collectionId, recordId, body.toString('utf8'), req.headers['if-match']);
+        return json(res, 200, item, { ...cors, ETag: item.etag });
+      }
+      if (collectionId && recordId && req.method === 'DELETE') {
+        await store.deleteRecord(id, collectionId, recordId, req.headers['if-match']);
+        return json(res, 200, { ok: true }, cors);
+      }
+      throw new HttpError(405, 'Método não permitido.');
+    }
+    if (req.method === 'GET') return operation();
+    return withDbLock(id, async () => {
+      const fresh = (await getDatabase(id)).meta;
+      if (!fresh.keys.some(item => item.hash === key.hash && item.permission === 'write')) {
+        return json(res, 403, { error: 'Chave revogada.' }, cors);
+      }
+      return operation();
+    });
+  }
+  if (collectionId || req.method === 'POST' || req.method === 'DELETE') throw new HttpError(404, 'Endereço não encontrado.');
   if (req.method === 'GET') {
     const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
     try {
@@ -572,7 +752,7 @@ async function readBody(req, maxBytes) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > maxBytes) throw new HttpError(413, 'JSON excede 10 MB.');
+    if (size > maxBytes) throw new HttpError(413, `O conteúdo excede ${Math.round(maxBytes / 1024 / 1024)} MB.`);
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -666,6 +846,17 @@ async function handler(req, res, listener = 'portal') {
       if (req.method === 'POST') { checkOrigin(req, host); return upload(req, res); }
       throw new HttpError(405, 'Método não permitido.');
     }
+    const appManagement = /^\/api\/apps\/([a-f0-9]{16})$/.exec(pathname);
+    if (appManagement) {
+      requireOwner(req);
+      if (req.method !== 'DELETE') throw new HttpError(405, 'Método não permitido.');
+      checkOrigin(req, host);
+      return withDbLock('catalog:apps', async () => {
+        await getApp(appManagement[1]);
+        await fsp.rm(path.join(appsDir, appManagement[1]), { recursive: true });
+        return json(res, 200, { ok: true });
+      });
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método não permitido.');
     return serveFile(req, res, portalDir, pathname, true);
   }
@@ -676,6 +867,7 @@ async function handler(req, res, listener = 'portal') {
 }
 
 await Promise.all([fsp.mkdir(appsDir, { recursive: true }), fsp.mkdir(databasesDir, { recursive: true }), fsp.mkdir(tmpDir, { recursive: true })]);
+if (mysqlStore) await mysqlStore.ready();
 function serverFor(listener) {
   const server = http.createServer((req, res) => {
     Promise.resolve(handler(req, res, listener)).catch(err => {

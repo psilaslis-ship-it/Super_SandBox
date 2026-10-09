@@ -9,10 +9,19 @@ const promptBox = $('#claude-prompt');
 const keyDialog = $('#key-dialog');
 let setupRequired = false;
 let databases = [];
+let publishedApps = 0;
+let portalLimits = { maxDatabases: 20, maxApps: 20, mysqlAvailable: false };
+let promptRequest = 0;
 let visibleSecretDatabaseId = null;
 let visibleSecretKeyId = null;
 const copyLabels = new WeakMap();
 const copyTimers = new WeakMap();
+
+function updateQuotaButtons(appCount) {
+  $('#database-form button[type=submit]').disabled = databases.length >= portalLimits.maxDatabases || !portalLimits.mysqlAvailable;
+  $('#empty-database-form button[type=submit]').disabled = databases.length >= portalLimits.maxDatabases || !portalLimits.mysqlAvailable;
+  if (appCount !== undefined) $('#upload-form button[type=submit]').disabled = appCount >= portalLimits.maxApps;
+}
 
 async function api(url, options) {
   const response = await fetch(url, options);
@@ -138,6 +147,16 @@ keyDialog.addEventListener('close', () => {
 });
 $('#copy-result').addEventListener('click', () => copy($('#result-url').href, $('#copy-result'), $('#result-url')));
 $('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt'), promptBox));
+$('#download-prompt').addEventListener('click', () => {
+  if (!promptBox.value) return;
+  const blob = new Blob([`# Instruções para adaptar o site\n\n${promptBox.value}\n`], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `instrucoes-${promptSelect.value}.md`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 
 function showAuth(setup) {
   $('#startup-loading').hidden = true;
@@ -219,10 +238,48 @@ Requisitos:
 Implemente as mudanças no projeto, teste leitura, gravação, chave inválida e conflito de edição. Ao final, entregue um ZIP com o site pronto para publicação e liste os arquivos alterados.`;
 }
 
-function updatePrompt() {
+function mysqlPrompt(db, structure) {
+  const groups = structure.collections.map(group => `- ${JSON.stringify(group.name)}: identificador ${group.id}, ${group.kind === 'list' ? 'lista' : 'valor único'}, ${group.count} item(ns)`).join('\n');
+  const imported = db.source === 'imported';
+  return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados em um banco MySQL por meio da API HTTP abaixo. Preserve ao máximo a arquitetura atual, as telas, a navegação, o formato dos objetos e todas as regras de negócio. Altere somente a camada que carrega e salva os dados e o fluxo de conexão quando necessário. Não recrie a aplicação.
+
+Endereço da API: ${db.url}
+Identificador dos dados: ${db.id}
+Situação inicial: ${imported ? 'JSON já importado com seus dados' : 'banco vazio'}.
+Formato original da raiz: ${db.summary?.rootType || 'object'}.
+Grupos disponíveis:
+${groups || '- Nenhum grupo ainda.'}
+
+Requisitos de acesso:
+- O site deve funcionar aberto localmente (inclusive file:// ou servidor local) e após ser publicado, sempre usando o mesmo endereço da API acima.
+- O endereço e os identificadores dos grupos podem ficar no código. Nunca inclua a chave privada no HTML, JS, ZIP, URL, armazenamento local ou arquivos distribuídos. Solicite-a ao usuário no momento de conectar e mantenha-a somente em memória durante a sessão.
+- Em todas as chamadas envie Authorization: Bearer <chave>. Para leitura use GET ${db.url}/collections. Para um grupo, use GET ${db.url}/collections/<id>/records?limit=100 e continue com cursor=<nextCursor> enquanto houver outra página. A resposta contém items com id, data e etag.
+- Para criar um item use POST ${db.url}/collections/<id>/records com Content-Type: application/json e o objeto/valor JSON no corpo. Para atualizar use PUT ${db.url}/collections/<id>/records/<id-do-item> com o JSON novo e If-Match: <etag anterior>. Para remover use DELETE nesse endereço com If-Match. Após PUT, guarde o novo ETag. Em 409 recarregue e peça ao usuário para resolver o conflito; em 401/403 peça uma chave válida ou explique a permissão.
+- ${imported ? 'O JSON já foi convertido: não importe de novo. Reconstrua em memória o formato original para a aplicação continuar trabalhando como antes. Cada propriedade de lista corresponde aos items do grupo; propriedades de valor único correspondem ao primeiro item. Preserve a relação entre os itens carregados e seus IDs/ETags para salvar só os itens alterados, criados ou removidos.' : 'Use o grupo Dados existente ou, se a aplicação tiver entidades distintas, crie grupos adicionais uma única vez via POST /collections com {"name":"Nome"}. Consulte primeiro os grupos existentes para evitar duplicatas. Mantenha o modelo e os campos que a aplicação já usa.'}
+- Evite gravar o conjunto inteiro a cada pequena alteração. Faça operações por item, com confirmação real da API antes de mostrar sucesso. Preserve dados ainda não salvos quando houver erro de rede.
+- Substitua apenas a seleção do arquivo/pasta local por uma ação de conectar com chave. Não peça ao navegador para acessar uma pasta do servidor.
+- Não inclua o JSON original nem a chave no ZIP. Inclua todos os outros recursos localmente, use caminhos relativos para HTML, JS, CSS e imagens, e evite dependências externas.
+
+Implemente no projeto e teste leitura, criação, alteração, exclusão, paginação, chave inválida, conflito de edição, uso local e uso depois de publicado. Descreva os arquivos alterados e entregue um ZIP pronto para publicação.`;
+}
+
+async function updatePrompt() {
+  const request = ++promptRequest;
   const db = databases.find(item => item.id === promptSelect.value);
-  promptBox.value = db ? promptFor(db) : '';
-  $('#copy-prompt').disabled = !db;
+  promptBox.value = '';
+  $('#copy-prompt').disabled = true;
+  $('#download-prompt').disabled = true;
+  if (!db) return;
+  if (db.kind === 'mysql') {
+    promptBox.value = 'Preparando instruções…';
+    try {
+      const structure = await api(`/api/databases/${db.id}/structure`);
+      if (request !== promptRequest) return;
+      promptBox.value = mysqlPrompt(db, structure);
+    } catch (error) { if (request === promptRequest) promptBox.value = error.message; return; }
+  } else promptBox.value = promptFor(db);
+  $('#copy-prompt').disabled = false;
+  $('#download-prompt').disabled = false;
 }
 promptSelect.addEventListener('change', updatePrompt);
 
@@ -230,7 +287,8 @@ async function loadDatabases() {
   showListLoading(databaseList, 'Carregando bancos…');
   try {
     databases = await api('/api/databases');
-    $('#database-count').textContent = `${databases.length} cadastrado${databases.length === 1 ? '' : 's'}`;
+    $('#database-count').textContent = `${databases.length} de ${portalLimits.maxDatabases} disponíveis`;
+    updateQuotaButtons();
     const selected = promptSelect.value;
     promptSelect.replaceChildren(new Option('Selecione um banco', ''));
     for (const db of databases) promptSelect.add(new Option(db.name, db.id));
@@ -247,7 +305,7 @@ function renderDatabase(db) {
   const record = textNode('article', '', 'record');
   const head = textNode('div', '', 'record-head');
   const info = document.createElement('div');
-  info.append(textNode('strong', db.name), textNode('small', `ID ${db.id} · ${new Date(db.createdAt).toLocaleString('pt-BR')}`));
+  info.append(textNode('strong', db.name), textNode('small', `${db.kind === 'mysql' ? (db.source === 'imported' ? 'Dados importados' : 'Espaço novo') : 'Arquivo JSON'} · ${new Date(db.createdAt).toLocaleString('pt-BR')}`));
   const actions = textNode('div', '', 'record-actions');
   const endpoint = textNode('p', db.url, 'endpoint');
   const copyButton = textNode('button', 'Copiar endereço');
@@ -257,7 +315,7 @@ function renderDatabase(db) {
   const remove = textNode('button', 'Apagar banco', 'danger-button');
   remove.type = 'button';
   remove.addEventListener('click', async () => {
-    if (!confirm(`Apagar o banco "${db.name}"? O JSON e todas as chaves serão excluídos. Aplicações que usam este banco deixarão de acessar os dados. Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Apagar os dados "${db.name}"? Todos os registros e chaves serão excluídos. Sites que usam estes dados perderão o acesso. Esta ação não pode ser desfeita.`)) return;
     setBusy(remove);
     try {
       await api(`/api/databases/${db.id}`, { method: 'DELETE' });
@@ -341,6 +399,9 @@ async function loadApps() {
   showListLoading(appsList, 'Carregando aplicações…');
   try {
     const apps = await api('/api/apps');
+    publishedApps = apps.length;
+    $('#apps-count').textContent = `${apps.length} de ${portalLimits.maxApps} disponíveis`;
+    updateQuotaButtons(apps.length);
     appsList.replaceChildren();
     if (!apps.length) { appsList.append(textNode('p', 'Nenhuma aplicação publicada ainda.', 'empty')); return; }
     for (const app of apps) {
@@ -352,7 +413,15 @@ async function loadApps() {
       const copyButton = textNode('button', 'Copiar URL'); copyButton.type = 'button';
       copyButton.addEventListener('click', () => copy(app.url, copyButton));
       const open = textNode('a', 'Abrir'); open.href = app.url; open.target = '_blank'; open.rel = 'noopener';
-      actions.append(copyButton, open); head.append(info, actions); record.append(head);
+      const remove = textNode('button', 'Apagar site', 'danger-button'); remove.type = 'button';
+      remove.addEventListener('click', async () => {
+        if (!confirm(`Apagar o site "${app.name}"? O link deixará de funcionar. Esta ação não pode ser desfeita.`)) return;
+        setBusy(remove);
+        try { await api(`/api/apps/${app.id}`, { method: 'DELETE' }); await loadApps(); }
+        catch (error) { alert(error.message); }
+        finally { clearBusy(remove); }
+      });
+      actions.append(copyButton, open, remove); head.append(info, actions); record.append(head);
       appsList.append(record);
     }
   } catch (error) { appsList.textContent = error.message; }
@@ -360,8 +429,8 @@ async function loadApps() {
 }
 
 for (const [input, label, status, extension, empty] of [
-  [$('#database-file'), $('#database-file-label'), $('#database-status'), '.json', 'Clique ou arraste um JSON aqui'],
-  [$('#zip-file'), $('#zip-file-label'), $('#upload-status'), '.zip', 'Clique ou arraste um ZIP aqui'],
+  [$('#database-file'), $('#database-file-label'), $('#database-status'), '.json', 'Clique ou arraste seu arquivo JSON aqui'],
+  [$('#zip-file'), $('#zip-file-label'), $('#upload-status'), '.zip', 'Clique ou arraste seu site em ZIP aqui'],
 ]) {
   const dropzone = input.previousElementSibling;
   const initialStatus = status.textContent;
@@ -415,23 +484,55 @@ for (const type of ['dragover', 'drop']) document.addEventListener(type, event =
   if (Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault();
 });
 
+function chooseDataPath(path) {
+  const importing = path === 'import';
+  $('#database-form').hidden = !importing;
+  $('#empty-database-form').hidden = importing;
+  $('#choice-import').classList.toggle('is-selected', importing);
+  $('#choice-empty').classList.toggle('is-selected', !importing);
+  $('#choice-import').setAttribute('aria-pressed', String(importing));
+  $('#choice-empty').setAttribute('aria-pressed', String(!importing));
+}
+$('#choice-import').addEventListener('click', () => chooseDataPath('import'));
+$('#choice-empty').addEventListener('click', () => chooseDataPath('empty'));
+
 $('#database-form').addEventListener('submit', async event => {
   event.preventDefault();
   const uploadForm = event.currentTarget;
   const file = $('#database-file').files[0]; if (!file) return;
   const button = uploadForm.querySelector('button[type=submit]');
   const status = $('#database-status');
-  setBusy(button, status, 'Enviando e validando o JSON…', uploadForm);
+  setBusy(button, status, 'Enviando e organizando seus dados… Isso pode levar alguns minutos.', uploadForm);
   try {
     const form = new FormData(); form.append('file', file);
-    const payload = await api('/api/databases', { method: 'POST', body: form });
-    status.textContent = 'Banco cadastrado.';
+    const payload = await api('/api/databases/import', { method: 'POST', body: form });
+    status.textContent = 'Dados importados com sucesso.';
     showSecret(payload.token, `Chave inicial de ${payload.database.name}`, payload.database.id, payload.database.keys[0].id);
-    uploadForm.reset(); $('#database-file-label').textContent = 'Clique ou arraste um JSON aqui';
+    uploadForm.reset(); $('#database-file-label').textContent = 'Clique ou arraste seu arquivo JSON aqui';
     await loadDatabases();
     promptSelect.value = payload.database.id; updatePrompt();
   } catch (error) { status.textContent = error.message; }
-  finally { clearBusy(button, status, uploadForm); }
+  finally { clearBusy(button, status, uploadForm); updateQuotaButtons(); }
+});
+
+$('#empty-database-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type=submit]');
+  const status = $('#empty-database-status');
+  setBusy(button, status, 'Criando seu espaço de dados…', form);
+  try {
+    const payload = await api('/api/databases/mysql', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('#empty-database-name').value }),
+    });
+    status.textContent = 'Espaço criado com sucesso.';
+    showSecret(payload.token, `Chave inicial de ${payload.database.name}`, payload.database.id, payload.database.keys[0].id);
+    form.reset();
+    await loadDatabases();
+    promptSelect.value = payload.database.id; updatePrompt();
+  } catch (error) { status.textContent = error.message; }
+  finally { clearBusy(button, status, form); updateQuotaButtons(); }
 });
 
 $('#upload-form').addEventListener('submit', async event => {
@@ -449,14 +550,19 @@ $('#upload-form').addEventListener('submit', async event => {
     $('#result-name').textContent = app.name;
     $('#result-url').href = app.url; $('#result-url').textContent = app.url;
     $('#upload-result').hidden = false;
-    uploadForm.reset(); $('#zip-file-label').textContent = 'Clique ou arraste um ZIP aqui';
+    uploadForm.reset(); $('#zip-file-label').textContent = 'Clique ou arraste seu site em ZIP aqui';
     await loadApps();
   } catch (error) { status.textContent = error.message; }
-  finally { clearBusy(button, status, uploadForm); }
+  finally { clearBusy(button, status, uploadForm); updateQuotaButtons(publishedApps); }
 });
 
 api('/api/session').then(session => {
-  $('#database-file-limit').textContent = `Até ${session.maxJsonMb} MB · salvo no volume Docker`;
+  portalLimits = session;
+  $('#database-file-limit').textContent = `Até ${session.maxJsonMb} MB`;
+  if (!session.mysqlAvailable) {
+    $('#database-status').textContent = 'O serviço de dados está indisponível. Verifique a instalação.';
+    $('#empty-database-status').textContent = 'O serviço de dados está indisponível. Verifique a instalação.';
+  }
   if (session.authenticated) return showDashboard();
   showAuth(session.setupRequired);
 }).catch(error => { showAuth(false); $('#auth-status').textContent = error.message; });

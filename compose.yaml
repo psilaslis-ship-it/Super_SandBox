@@ -1,4 +1,37 @@
 services:
+  mysql-secrets:
+    image: alpine:3.21
+    command:
+      - sh
+      - -ec
+      - |
+        if [ ! -s /secrets/root_password ]; then head -c 48 /dev/urandom | base64 | tr -d '\n' > /secrets/root_password; fi
+        if [ ! -s /secrets/app_password ]; then head -c 48 /dev/urandom | base64 | tr -d '\n' > /secrets/app_password; fi
+        chmod 0444 /secrets/root_password /secrets/app_password
+    volumes:
+      - mysql_secrets:/secrets
+    restart: "no"
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/mysql-secrets/root_password
+      MYSQL_PASSWORD_FILE: /run/mysql-secrets/app_password
+      MYSQL_USER: sandbox
+      MYSQL_DATABASE: sandbox
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - mysql_secrets:/run/mysql-secrets:ro
+    depends_on:
+      mysql-secrets:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
   super-sandbox:
     build: .
     ports:
@@ -14,9 +47,21 @@ services:
       PUBLIC_PORT: "${HOST_PORT:-8080}"
       PUBLIC_APP_PORT: "${HOST_APP_PORT:-8081}"
       MAX_JSON_MB: "${MAX_JSON_MB:-512}"
+      MAX_DATABASES: "${MAX_DATABASES:-20}"
+      MAX_APPS: "${MAX_APPS:-20}"
+      MYSQL_HOST: mysql
+      MYSQL_USER: sandbox
+      MYSQL_DATABASE: sandbox
+      MYSQL_PASSWORD_FILE: /run/mysql-secrets/app_password
     volumes:
       - sandbox_data:/data
+      - mysql_secrets:/run/mysql-secrets:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   sandbox_data:
+  mysql_data:
+  mysql_secrets:
