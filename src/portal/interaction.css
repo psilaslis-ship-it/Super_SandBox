@@ -46,6 +46,28 @@ button.is-busy::before {
   overflow-wrap: anywhere;
 }
 
+.copy-field button:hover,
+.copy-field button:focus-visible {
+  background: #395f61;
+  color: #fff;
+}
+
+.record-actions {
+  flex-wrap: wrap;
+}
+
+.record-actions .danger-button {
+  border-color: #98606b;
+  color: #ffd4da;
+}
+
+.record-actions .danger-button:hover,
+.record-actions .danger-button:focus-visible {
+  border-color: #ff9baa;
+  background: #4a2631;
+  color: #fff;
+}
+
 .file-drop.is-dragover {
   background: #234536;
   border-color: #c5f36d;

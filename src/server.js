@@ -435,6 +435,13 @@ async function databaseManagement(req, res, pathname) {
   const [, id, action, keyId] = match;
   const { dir, meta } = await getDatabase(id);
   if (!action && req.method === 'GET') return json(res, 200, publicDatabase(meta));
+  if (!action && req.method === 'DELETE') {
+    return withDbLock(id, async () => {
+      await getDatabase(id);
+      await fsp.rm(dir, { recursive: true });
+      return json(res, 200, { ok: true });
+    });
+  }
   if (action === 'download' && req.method === 'GET') {
     const handle = await fsp.open(path.join(dir, 'data.json'), 'r');
     try {

@@ -8,6 +8,9 @@ const promptSelect = $('#prompt-database');
 const promptBox = $('#claude-prompt');
 let setupRequired = false;
 let databases = [];
+let visibleSecretDatabaseId = null;
+const copyLabels = new WeakMap();
+const copyTimers = new WeakMap();
 
 async function api(url, options) {
   const response = await fetch(url, options);
@@ -53,24 +56,63 @@ function showListLoading(list, message) {
   list.classList.add('is-loading');
 }
 
-async function copy(value, button) {
-  try {
-    await navigator.clipboard.writeText(value);
-    const before = button.textContent;
-    button.textContent = 'Copiado';
-    setTimeout(() => { button.textContent = before; }, 1800);
-  } catch { button.textContent = 'Não foi possível copiar'; }
+function copyWithSelection(value) {
+  const field = document.createElement('textarea');
+  const previousFocus = document.activeElement;
+  field.value = value;
+  field.readOnly = true;
+  field.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+  document.body.append(field);
+  field.focus();
+  field.select();
+  try { return document.execCommand('copy'); }
+  finally {
+    field.remove();
+    previousFocus?.focus?.({ preventScroll: true });
+  }
 }
 
-function showSecret(token, title) {
+function copyFeedback(button, message) {
+  if (!copyLabels.has(button)) copyLabels.set(button, button.textContent);
+  clearTimeout(copyTimers.get(button));
+  button.textContent = message;
+  copyTimers.set(button, setTimeout(() => { button.textContent = copyLabels.get(button); }, 2500));
+}
+
+async function copy(value, button, source) {
+  let copied = false;
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(value); copied = true; }
+    catch { /* Tenta a cópia por seleção em páginas HTTP da rede local. */ }
+  }
+  if (!copied) {
+    try { copied = copyWithSelection(value); }
+    catch { /* O navegador bloqueou também a alternativa. */ }
+  }
+  if (copied) return copyFeedback(button, 'Copiado!');
+  if (source) {
+    if (source.select) source.select();
+    else {
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(source);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+  copyFeedback(button, 'Use Ctrl+C');
+}
+
+function showSecret(token, title, databaseId) {
   $('#secret-title').textContent = title;
   $('#secret-token').textContent = token;
+  visibleSecretDatabaseId = databaseId;
   $('#secret-result').hidden = false;
   $('#secret-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
-$('#copy-token').addEventListener('click', () => copy($('#secret-token').textContent, $('#copy-token')));
-$('#copy-result').addEventListener('click', () => copy($('#result-url').href, $('#copy-result')));
-$('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt')));
+$('#copy-token').addEventListener('click', () => copy($('#secret-token').textContent, $('#copy-token'), $('#secret-token')));
+$('#copy-result').addEventListener('click', () => copy($('#result-url').href, $('#copy-result'), $('#result-url')));
+$('#copy-prompt').addEventListener('click', () => copy(promptBox.value, $('#copy-prompt'), promptBox));
 
 function showAuth(setup) {
   $('#startup-loading').hidden = true;
@@ -125,6 +167,7 @@ $('#logout').addEventListener('click', async () => {
     await api('/api/logout', { method: 'POST' });
     $('#secret-result').hidden = true;
     $('#secret-token').textContent = '';
+    visibleSecretDatabaseId = null;
     showAuth(false);
   } catch (error) { alert(error.message); }
   finally { clearBusy(button); }
@@ -180,12 +223,29 @@ function renderDatabase(db) {
   const info = document.createElement('div');
   info.append(textNode('strong', db.name), textNode('small', `ID ${db.id} · ${new Date(db.createdAt).toLocaleString('pt-BR')}`));
   const actions = textNode('div', '', 'record-actions');
+  const endpoint = textNode('p', db.url, 'endpoint');
   const copyButton = textNode('button', 'Copiar endereço');
-  copyButton.type = 'button'; copyButton.addEventListener('click', () => copy(db.url, copyButton));
+  copyButton.type = 'button'; copyButton.addEventListener('click', () => copy(db.url, copyButton, endpoint));
   const download = textNode('a', 'Baixar JSON');
   download.href = `/api/databases/${db.id}/download`;
-  actions.append(copyButton, download); head.append(info, actions);
-  const endpoint = textNode('p', db.url, 'endpoint');
+  const remove = textNode('button', 'Apagar banco', 'danger-button');
+  remove.type = 'button';
+  remove.addEventListener('click', async () => {
+    if (!confirm(`Apagar o banco "${db.name}"? O JSON e todas as chaves serão excluídos. Aplicações que usam este banco deixarão de acessar os dados. Esta ação não pode ser desfeita.`)) return;
+    setBusy(remove);
+    try {
+      await api(`/api/databases/${db.id}`, { method: 'DELETE' });
+      if (visibleSecretDatabaseId === db.id) {
+        $('#secret-result').hidden = true;
+        $('#secret-token').textContent = '';
+        visibleSecretDatabaseId = null;
+      }
+      await loadDatabases();
+      $('#database-status').textContent = `Banco ${db.name} apagado.`;
+    } catch (error) { alert(error.message); }
+    finally { clearBusy(remove); }
+  });
+  actions.append(copyButton, download, remove); head.append(info, actions);
   const keySection = textNode('div', '', 'key-section');
   keySection.append(textNode('h4', 'Chaves de acesso'));
   const form = textNode('form', '', 'key-form');
@@ -204,7 +264,7 @@ function renderDatabase(db) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ label: label.value, permission: permission.value }),
       });
-      showSecret(payload.token, `Chave criada para ${payload.key.label}`);
+      showSecret(payload.token, `Chave criada para ${payload.key.label}`, db.id);
       await loadDatabases();
     } catch (error) { alert(error.message); }
     finally { clearBusy(create); create.removeAttribute('aria-label'); }
@@ -317,7 +377,7 @@ $('#database-form').addEventListener('submit', async event => {
     const form = new FormData(); form.append('file', file);
     const payload = await api('/api/databases', { method: 'POST', body: form });
     status.textContent = 'Banco cadastrado.';
-    showSecret(payload.token, `Chave inicial de ${payload.database.name}`);
+    showSecret(payload.token, `Chave inicial de ${payload.database.name}`, payload.database.id);
     uploadForm.reset(); $('#database-file-label').textContent = 'Clique ou arraste um JSON aqui';
     await loadDatabases();
     promptSelect.value = payload.database.id; updatePrompt();

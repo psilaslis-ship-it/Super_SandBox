@@ -32,6 +32,8 @@ Para testar em um Debian na sua rede, siga o [guia de implantação local](docs/
 
 O proprietário pode criar chaves distintas para cada pessoa ou dispositivo, com permissão de leitura ou de leitura e gravação, e revogá-las. Uma chave dá acesso somente ao banco ao qual pertence. Quem tiver uma chave válida pode acessar esse banco; cuide dela como uma senha. Como a aplicação executa JavaScript no navegador, use somente código em que você confia e não embuta a chave em seus arquivos.
 
+Na lista de bancos, **Apagar banco** pede confirmação e remove definitivamente o JSON e todas as suas chaves. Sites já publicados continuam no portal, mas perdem acesso ao banco apagado. Faça o download do JSON antes de excluir se precisar guardar uma cópia.
+
 ## API do banco
 
 O endereço de cada banco tem o formato `http://HOST:8080/api/db-access/<id>`, onde `HOST` é `localhost` no modo padrão ou o IP configurado no modo LAN. Ele aparece no portal. A API aceita chamadas vindas de aplicações abertas por `file://`, de um servidor local ou da URL publicada; a autorização depende da chave, não da origem do navegador.
@@ -65,4 +67,4 @@ npm start
 npm test
 ```
 
-Os testes integrados verificam a senha do proprietário, upload separado, chaves, permissões, revogação, CORS para a aplicação local, controle de conflitos, ZIP do site e persistência após reinício. Docker não é necessário para executar os testes Node.js.
+Os testes integrados verificam a senha do proprietário, upload separado, chaves, permissões, revogação, exclusão de banco, CORS para a aplicação local, controle de conflitos, ZIP do site e persistência após reinício. Docker não é necessário para executar os testes Node.js.

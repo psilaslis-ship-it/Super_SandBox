@@ -100,6 +100,25 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     const { database, token } = created.body;
     assert.match(token, /^[A-Za-z0-9_-]{43}$/);
     assert.equal(database.url, `${portalOrigin}/api/db-access/${database.id}`);
+    const disposable = await upload(port, '/api/databases', 'temporario.json', Buffer.from('{"temporario":true}'), ownerCookie);
+    assert.equal(disposable.status, 201);
+    const disposableId = disposable.body.database.id;
+    const deletePath = `/api/databases/${disposableId}`;
+    assert.equal((await http(port, 'localhost', 'DELETE', deletePath)).status, 401);
+    assert.equal((await http(port, 'localhost', 'DELETE', deletePath, null,
+      { Cookie: ownerCookie, Origin: `http://evil.localhost:${port}` })).status, 403);
+    assert.equal((await http(port, 'localhost', 'DELETE', deletePath, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).status, 200);
+    assert.equal((await http(port, 'localhost', 'GET', deletePath, null, { Cookie: ownerCookie })).status, 404);
+    assert.equal((await http(port, 'localhost', 'GET', `/api/db-access/${disposableId}`, null,
+      { Authorization: `Bearer ${disposable.body.token}` })).status, 404);
+    assert.equal((await http(port, 'localhost', 'GET', `${deletePath}/download`, null,
+      { Cookie: ownerCookie })).status, 404);
+    assert.equal((await http(port, 'localhost', 'DELETE', deletePath, null,
+      { Cookie: ownerCookie, Origin: portalOrigin })).status, 404);
+    assert.equal(JSON.parse((await http(port, 'localhost', 'GET', '/api/databases', null,
+      { Cookie: ownerCookie })).body).some(item => item.id === disposableId), false);
+    await assert.rejects(readFile(path.join(dataDir, 'databases', disposableId, 'data.json')), { code: 'ENOENT' });
     const dbPath = `/api/db-access/${database.id}`;
     assert.equal((await http(port, 'localhost', 'GET', dbPath)).status, 401);
     const preflight = await http(port, 'localhost', 'OPTIONS', dbPath, null, {
