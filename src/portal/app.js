@@ -10,6 +10,7 @@ const keyDialog = $('#key-dialog');
 let setupRequired = false;
 let databases = [];
 let publishedApps = 0;
+let publishedAppNames = new Set();
 let portalLimits = { maxDatabases: 20, maxApps: 20, mysqlAvailable: false };
 let promptRequest = 0;
 let visibleSecretDatabaseId = null;
@@ -182,7 +183,8 @@ async function showDashboard() {
   authPanel.hidden = true;
   dashboard.hidden = false;
   $('#logout').hidden = false;
-  await Promise.all([loadDatabases(), loadApps()]);
+  await loadDatabases();
+  await loadApps();
 }
 
 authForm.addEventListener('submit', async event => {
@@ -439,6 +441,7 @@ function renderDatabase(db) {
       await api(`/api/databases/${db.id}`, { method: 'DELETE' });
       hideSecretForDatabase(db.id);
       await loadDatabases();
+      await loadApps();
       $('#database-status').textContent = `Banco ${db.name} apagado.`;
     } catch (error) { alert(error.message); }
     finally { clearBusy(remove); }
@@ -568,6 +571,7 @@ async function loadApps() {
   try {
     const apps = await api('/api/apps');
     publishedApps = apps.length;
+    publishedAppNames = new Set(apps.map(app => app.name));
     $('#apps-count').textContent = `${apps.length} de ${portalLimits.maxApps} disponíveis`;
     updateQuotaButtons(apps.length);
     appsList.replaceChildren();
@@ -577,6 +581,13 @@ async function loadApps() {
       const head = textNode('div', '', 'record-head');
       const info = document.createElement('div');
       info.append(textNode('strong', app.name), textNode('small', new Date(app.createdAt).toLocaleString('pt-BR')));
+      if (app.databaseIds?.length) {
+        const missing = app.databaseIds.filter(id => !databases.some(db => db.id === id));
+        const connected = app.databaseIds.filter(id => !missing.includes(id))
+          .map(id => databases.find(db => db.id === id).name);
+        if (connected.length) info.append(textNode('small', `Banco usado: ${connected.join(', ')}`));
+        if (missing.length) info.append(textNode('small', `Atenção: este site aponta para um banco apagado (${missing.join(', ')}). Atualize o endereço do banco no site.`, 'status'));
+      }
       const actions = textNode('div', '', 'record-actions');
       const copyButton = textNode('button', 'Copiar URL'); copyButton.type = 'button';
       copyButton.addEventListener('click', () => copy(app.url, copyButton));
@@ -589,7 +600,47 @@ async function loadApps() {
         catch (error) { alert(error.message); }
         finally { clearBusy(remove); }
       });
-      actions.append(copyButton, open, remove); head.append(info, actions); record.append(head);
+      const update = textNode('details', '', 'sql-update');
+      const updateSummary = textNode('summary', 'Atualizar este site (mantém o link)');
+      const updateForm = textNode('form', '', 'sql-form');
+      const updateInput = document.createElement('input');
+      updateInput.type = 'file'; updateInput.accept = '.zip,application/zip'; updateInput.required = true; updateInput.hidden = true;
+      updateInput.id = `site-update-${app.id}`;
+      const updateDrop = textNode('label', '', 'file-drop'); updateDrop.htmlFor = updateInput.id;
+      const updateIcon = textNode('span', '↑', 'upload-icon'); updateIcon.setAttribute('aria-hidden', 'true');
+      const updateLabel = textNode('strong', 'Clique ou arraste o novo ZIP aqui');
+      updateDrop.append(updateIcon, updateLabel, textNode('small', 'Até 50 MB'));
+      updateDrop.addEventListener('dragover', event => {
+        if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); updateDrop.classList.add('is-dragover'); }
+      });
+      updateDrop.addEventListener('dragleave', () => updateDrop.classList.remove('is-dragover'));
+      updateDrop.addEventListener('drop', event => {
+        event.preventDefault(); updateDrop.classList.remove('is-dragover');
+        if (updateForm.getAttribute('aria-busy') === 'true' || event.dataTransfer.files.length !== 1) return;
+        updateInput.files = event.dataTransfer.files;
+        updateLabel.textContent = updateInput.files[0].name;
+      });
+      updateInput.addEventListener('change', () => { updateLabel.textContent = updateInput.files[0]?.name || 'Clique ou arraste o novo ZIP aqui'; });
+      const updateStatus = textNode('span', 'O endereço atual do site será mantido.', 'status');
+      const updateButton = textNode('button', 'Atualizar site'); updateButton.type = 'submit';
+      const updateBottom = textNode('div', '', 'form-bottom'); updateBottom.append(updateStatus, updateButton);
+      updateForm.append(updateDrop, updateInput, updateBottom);
+      updateForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (updateForm.getAttribute('aria-busy') === 'true') return;
+        const file = updateInput.files[0]; if (!file) return;
+        if (!file.name.toLowerCase().endsWith('.zip')) { updateStatus.textContent = 'Selecione um arquivo ZIP.'; return; }
+        setBusy(updateButton, updateStatus, 'Atualizando este site…', updateForm);
+        try {
+          const form = new FormData(); form.append('file', file);
+          await api(`/api/apps/${app.id}`, { method: 'PUT', body: form });
+          $('#upload-status').textContent = `Site "${app.name}" atualizado. O link foi mantido.`;
+          await loadApps();
+        } catch (error) { updateStatus.textContent = error.message; }
+        finally { clearBusy(updateButton, updateStatus, updateForm); }
+      });
+      update.append(updateSummary, updateForm);
+      actions.append(copyButton, open, remove); head.append(info, actions); record.append(head, update);
       appsList.append(record);
     }
   } catch (error) { appsList.textContent = error.message; }
@@ -667,7 +718,10 @@ $('#choice-empty').addEventListener('click', () => chooseDataPath('empty'));
 $('#database-form').addEventListener('submit', async event => {
   event.preventDefault();
   const uploadForm = event.currentTarget;
+  if (uploadForm.getAttribute('aria-busy') === 'true') return;
   const file = $('#database-file').files[0]; if (!file) return;
+  if (databases.some(db => db.name === file.name) &&
+      !confirm(`Já existe um banco chamado "${file.name}". Um novo envio criará outro banco, com endereço e chave diferentes. Deseja criar outro?`)) return;
   const button = uploadForm.querySelector('button[type=submit]');
   const status = $('#database-status');
   setBusy(button, status, 'Enviando e organizando seus dados… Isso pode levar alguns minutos.', uploadForm);
@@ -686,6 +740,10 @@ $('#database-form').addEventListener('submit', async event => {
 $('#empty-database-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.currentTarget;
+  if (form.getAttribute('aria-busy') === 'true') return;
+  const name = $('#empty-database-name').value.trim();
+  if (databases.some(db => db.name === name) &&
+      !confirm(`Já existe um banco chamado "${name}". Criar outro dará a ele um endereço e uma chave diferentes. Deseja continuar?`)) return;
   const button = form.querySelector('button[type=submit]');
   const status = $('#empty-database-status');
   setBusy(button, status, 'Criando seu espaço de dados…', form);
@@ -706,7 +764,11 @@ $('#empty-database-form').addEventListener('submit', async event => {
 $('#upload-form').addEventListener('submit', async event => {
   event.preventDefault();
   const uploadForm = event.currentTarget;
+  if (uploadForm.getAttribute('aria-busy') === 'true') return;
   const file = $('#zip-file').files[0]; if (!file) return;
+  const siteName = file.name.replace(/\.zip$/i, '');
+  if (publishedAppNames.has(siteName) &&
+      !confirm(`Já existe um site chamado "${siteName}". Um novo envio criará outro site, com outro link. Deseja publicar outra cópia?`)) return;
   const button = uploadForm.querySelector('button[type=submit]');
   const status = $('#upload-status');
   setBusy(button, status, 'Enviando e validando o ZIP…', uploadForm);

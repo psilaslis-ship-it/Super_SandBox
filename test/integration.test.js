@@ -40,11 +40,11 @@ function http(port, host, method, pathname, body, headers = {}) {
   });
 }
 
-async function upload(port, endpoint, filename, bytes, cookie) {
+async function upload(port, endpoint, filename, bytes, cookie, method = 'POST') {
   const form = new FormData();
   form.append('file', new Blob([bytes]), filename);
   const response = await fetch(`http://127.0.0.1:${port}${endpoint}`, {
-    method: 'POST', body: form, headers: cookie ? { Cookie: cookie } : {},
+    method, body: form, headers: cookie ? { Cookie: cookie } : {},
   });
   return { status: response.status, body: await response.json() };
 }
@@ -212,6 +212,40 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     assert.equal((await http(port, appHost, 'GET', '/index.html')).body, '<h1>Site original</h1><script src="app.js"></script>');
     assert.equal((await http(port, appHost, 'GET', '/db_global/dados.json')).status, 403);
     assert.equal((await http(port, appHost, 'PUT', '/db_global/dados.json', '{}')).status, 405);
+    const oldAppMetaPath = path.join(dataDir, 'apps', app.body.id, 'meta.json');
+    const oldAppMeta = JSON.parse(await readFile(oldAppMetaPath, 'utf8'));
+    delete oldAppMeta.databaseIds;
+    await writeFile(oldAppMetaPath, JSON.stringify(oldAppMeta));
+    const oldAppList = JSON.parse((await http(port, 'localhost', 'GET', '/api/apps', null,
+      { Cookie: ownerCookie })).body);
+    assert.deepEqual(oldAppList[0].databaseIds, [database.id]);
+    assert.equal((await http(port, 'localhost', 'PUT', `/api/apps/${app.body.id}`)).status, 401);
+    assert.equal((await http(port, 'localhost', 'PUT', `/api/apps/${app.body.id}`, null,
+      { Cookie: ownerCookie, Origin: `http://evil.localhost:${port}` })).status, 403);
+
+    const missingDatabase = `${portalOrigin}/api/db-access/ffffffffffffffff`;
+    const badSite = await upload(port, '/api/apps', 'outro.zip', await zip({
+      'index.html': `<script>const banco = '${missingDatabase}';</script>`,
+    }), ownerCookie);
+    assert.equal(badSite.status, 409, JSON.stringify(badSite.body));
+    assert.match(badSite.body.error, /banco que não existe/);
+    const badUpdate = await upload(port, `/api/apps/${app.body.id}`, 'site.zip', await zip({
+      'index.html': `<script>const banco = '${missingDatabase}';</script>`,
+    }), ownerCookie, 'PUT');
+    assert.equal(badUpdate.status, 409, JSON.stringify(badUpdate.body));
+    assert.equal((await http(port, appHost, 'GET', '/index.html')).body,
+      '<h1>Site original</h1><script src="app.js"></script>');
+    const updated = await upload(port, `/api/apps/${app.body.id}`, 'site.zip', await zip({
+      'index.html': `<h1>Site atualizado</h1><script>const banco = '${database.url}';</script>`,
+    }), ownerCookie, 'PUT');
+    assert.equal(updated.status, 200, JSON.stringify(updated.body));
+    assert.equal(updated.body.url, app.body.url);
+    assert.equal((await http(port, appHost, 'GET', '/index.html')).body,
+      `<h1>Site atualizado</h1><script>const banco = '${database.url}';</script>`);
+    const appsAfterUpdate = JSON.parse((await http(port, 'localhost', 'GET', '/api/apps', null,
+      { Cookie: ownerCookie })).body);
+    assert.equal(appsAfterUpdate.length, 1);
+    assert.deepEqual(appsAfterUpdate[0].databaseIds, [database.id]);
 
     const largeBody = JSON.stringify({ texto: 'x'.repeat(11 * 1024 * 1024) });
     assert.ok(Buffer.byteLength(largeBody) > 10 * 1024 * 1024);

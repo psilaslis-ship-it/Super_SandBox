@@ -29,9 +29,11 @@ Substitua o IP pelo IPv4 do Debian. O portal ficará em `http://IP:8080`; cada s
 1. Em **Prepare seus dados**, escolha **Já tenho meus dados** para importar um JSON ou **Começar do zero** para criar um espaço vazio.
 2. O portal entrega uma chave inicial. Chaves adicionais podem ser criadas para cada pessoa ou dispositivo, com leitura ou leitura e gravação. O proprietário autenticado pode consultar, renovar e revogar as chaves.
 3. Em **Adapte seu site**, escolha os dados e copie ou baixe as instruções `.md` para o assistente de IA de sua preferência. Para um banco vazio, as instruções pedem também `estrutura.sql`; envie esse arquivo na área de atualização do banco antes de usar as tabelas no site.
-4. Teste localmente com a chave solicitada ao usuário no momento da conexão. Depois envie um ZIP com HTML, CSS, JavaScript e recursos locais. O portal retorna o link do site. Sites publicados podem ser apagados para liberar uma vaga da cota.
+4. Teste localmente com a chave solicitada ao usuário no momento da conexão. Depois envie um ZIP com HTML, CSS, JavaScript e recursos locais. O portal retorna o link do site. Para corrigir ou publicar uma nova versão, use **Atualizar este site** no cartão existente: o link continua o mesmo e não surge outro cartão. Sites publicados podem ser apagados para liberar uma vaga da cota.
 
 O ZIP **não deve conter** a chave, o JSON nem a pasta `db_global`. O site deve usar caminhos relativos para seus recursos. O portal não altera o conteúdo dos sites enviados. Sites com dependências externas continuam dependentes delas.
+
+Cada importação de JSON cria um banco novo, com endereço e chave próprios. Repetir o envio do mesmo arquivo não atualiza o banco anterior. O portal avisa quando já existe um banco ou site com o mesmo nome. Ao publicar ou atualizar um site, ele verifica os endereços de banco deste portal encontrados em arquivos HTML e JavaScript do ZIP e recusa referências a bancos apagados. Nos cartões de sites, mostra o banco identificado e avisa quando uma publicação antiga ainda aponta para um banco removido. Se o endereço for montado dinamicamente ou estiver em outro tipo de arquivo, confira a configuração do site manualmente.
 
 ## Dados importados
 

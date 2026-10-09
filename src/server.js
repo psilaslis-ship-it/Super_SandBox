@@ -58,6 +58,7 @@ const maxEntries = 2000;
 const sessions = new Map();
 const loginFailures = new Map();
 const dbLocks = new Map();
+const legacyAppReferences = new Map();
 const dbCors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -242,6 +243,20 @@ async function walk(dir, base = dir, results = []) {
   return results;
 }
 
+async function siteDatabaseIds(siteRoot, files) {
+  const databaseIds = new Set();
+  const reference = new RegExp(`${portalOrigin().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/api/db-access/([a-f0-9]{16})(?![a-f0-9])`, 'gi');
+  for (const file of files.filter(name => /\.(?:html?|m?js)$/i.test(name))) {
+    let tail = '';
+    for await (const chunk of fs.createReadStream(path.join(siteRoot, file), { encoding: 'utf8' })) {
+      const text = tail + chunk;
+      for (const match of text.matchAll(reference)) databaseIds.add(match[1].toLowerCase());
+      tail = text.slice(-128);
+    }
+  }
+  return [...databaseIds];
+}
+
 async function inspectSite(extractDir) {
   let siteRoot = extractDir;
   while (true) {
@@ -259,7 +274,17 @@ async function inspectSite(extractDir) {
     const score = f => (f.toLowerCase() === 'index.html' ? -100 : /(^|\/)index\.html$/i.test(f) ? -50 : 0) + f.split('/').length;
     return score(a) - score(b) || a.localeCompare(b);
   });
-  return { root: path.relative(extractDir, siteRoot), entry: html[0] };
+  return { root: path.relative(extractDir, siteRoot), entry: html[0], databaseIds: await siteDatabaseIds(siteRoot, files) };
+}
+
+async function validateSiteDatabases(databaseIds) {
+  for (const id of databaseIds) {
+    try { await getDatabase(id); }
+    catch (error) {
+      if (error.status !== 404) throw error;
+      throw new HttpError(409, `O site aponta para um banco que não existe neste portal (${id}). Copie o endereço do banco atual em “Meus dados”, corrija a referência no site e envie o ZIP novamente.`);
+    }
+  }
 }
 
 async function receiveFile(req, destination, extension, maxBytes) {
@@ -312,6 +337,7 @@ async function upload(req, res) {
     try { await extractZip(tempZip, path.join(tempApp, 'site')); }
     catch (err) { throw err instanceof HttpError ? err : new HttpError(400, 'O arquivo ZIP é inválido ou está corrompido.'); }
     const site = await inspectSite(path.join(tempApp, 'site'));
+    await validateSiteDatabases(site.databaseIds);
     const meta = { id, name: filename.replace(/\.zip$/i, ''), createdAt: new Date().toISOString(), ...site };
     await fsp.writeFile(path.join(tempApp, 'meta.json'), JSON.stringify(meta, null, 2));
     await withDbLock('catalog:apps', async () => {
@@ -319,6 +345,35 @@ async function upload(req, res) {
       await fsp.rename(tempApp, path.join(appsDir, id));
     });
     json(res, 201, { ...meta, url: appUrl(id) });
+  } finally {
+    await Promise.allSettled([fsp.rm(tempZip, { force: true }), fsp.rm(tempApp, { recursive: true, force: true })]);
+  }
+}
+
+async function updateApp(req, res, id) {
+  await getApp(id);
+  const tempId = randomBytes(8).toString('hex');
+  const tempZip = path.join(tmpDir, `${tempId}.zip`);
+  const tempApp = path.join(tmpDir, tempId);
+  try {
+    await receiveFile(req, tempZip, '.zip', maxZipBytes);
+    try { await extractZip(tempZip, path.join(tempApp, 'site')); }
+    catch (err) { throw err instanceof HttpError ? err : new HttpError(400, 'O arquivo ZIP é inválido ou está corrompido.'); }
+    const site = await inspectSite(path.join(tempApp, 'site'));
+    await validateSiteDatabases(site.databaseIds);
+    const meta = await withDbLock('catalog:apps', async () => {
+      const previous = (await getApp(id)).meta;
+      const next = { ...previous, ...site, updatedAt: new Date().toISOString() };
+      await fsp.writeFile(path.join(tempApp, 'meta.json'), JSON.stringify(next, null, 2));
+      const currentDir = path.join(appsDir, id);
+      const backupDir = path.join(tmpDir, `${tempId}.backup`);
+      await fsp.rename(currentDir, backupDir);
+      try { await fsp.rename(tempApp, currentDir); }
+      catch (error) { await fsp.rename(backupDir, currentDir); throw error; }
+      await fsp.rm(backupDir, { recursive: true, force: true }).catch(error => console.error('Falha ao limpar versão anterior do site:', error));
+      return next;
+    });
+    return json(res, 200, { ...meta, url: appUrl(id) });
   } finally {
     await Promise.allSettled([fsp.rm(tempZip, { force: true }), fsp.rm(tempApp, { recursive: true, force: true })]);
   }
@@ -337,7 +392,18 @@ async function getApp(id) {
 async function listApps() {
   const ids = await fsp.readdir(appsDir);
   const apps = await Promise.all(ids.filter(id => /^[a-f0-9]{16}$/.test(id)).map(async id => {
-    try { const { meta } = await getApp(id); return { ...meta, url: appUrl(id) }; }
+    try {
+      const { meta, root } = await getApp(id);
+      let databaseIds = meta.databaseIds;
+      if (!databaseIds) {
+        if (!legacyAppReferences.has(id)) {
+          try { legacyAppReferences.set(id, await siteDatabaseIds(root, await walk(root))); }
+          catch (error) { console.error('Falha ao verificar bancos do site publicado:', error); legacyAppReferences.set(id, []); }
+        }
+        databaseIds = legacyAppReferences.get(id);
+      }
+      return { ...meta, databaseIds, url: appUrl(id) };
+    }
     catch { return null; }
   }));
   return apps.filter(Boolean).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -895,11 +961,13 @@ async function handler(req, res, listener = 'portal') {
     const appManagement = /^\/api\/apps\/([a-f0-9]{16})$/.exec(pathname);
     if (appManagement) {
       requireOwner(req);
-      if (req.method !== 'DELETE') throw new HttpError(405, 'Método não permitido.');
       checkOrigin(req, host);
+      if (req.method === 'PUT') return updateApp(req, res, appManagement[1]);
+      if (req.method !== 'DELETE') throw new HttpError(405, 'Método não permitido.');
       return withDbLock('catalog:apps', async () => {
         await getApp(appManagement[1]);
         await fsp.rm(path.join(appsDir, appManagement[1]), { recursive: true });
+        legacyAppReferences.delete(appManagement[1]);
         return json(res, 200, { ok: true });
       });
     }
