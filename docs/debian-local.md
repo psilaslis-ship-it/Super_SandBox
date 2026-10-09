@@ -65,6 +65,8 @@ O `.env` está no `.gitignore` e não acompanha `git pull` ou `git push`. Se o I
 
 O limite padrão de cada JSON é 512 MB. Para outro limite, acrescente `MAX_JSON_MB=1024` ao `.env` (exemplo para 1 GB) e execute `sudo docker compose up -d`. Os limites de quantidade são `MAX_DATABASES=20` e `MAX_APPS=20`; ajuste os valores no mesmo `.env` se necessário. O limite padrão de arquivos SQL é 5 MB e pode ser ajustado com `MAX_SQL_MB` (entre 1 e 50). Um item individual do JSON importado pode ter até 16 MB. Reserve espaço livre nos volumes para os dados e arquivos temporários da importação.
 
+Se o MySQL reiniciar com `Fatal glibc error: CPU does not support x86-64-v2`, o processador ou a máquina virtual não oferece as instruções exigidas pela imagem padrão. Em uma máquina virtual, configure o modelo de CPU para expor os recursos do processador anfitrião. Apenas para testes locais em hardware antigo, acrescente `MYSQL_IMAGE=mysql:8.4.0-oraclelinux8` ao `.env` e recrie os containers com `sudo docker compose up -d`. Essa imagem é antiga e não recebe atualizações; não a use em produção. Não remova os volumes ao trocar a imagem.
+
 O tráfego HTTP da rede local não é criptografado. Use este modo em uma rede confiável para testes. Para acesso fora dela ou com dados sensíveis, configure HTTPS antes de compartilhar chaves.
 
 ## 4. Alternativa: túnel SSH sem abrir portas na rede

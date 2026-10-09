@@ -39,6 +39,8 @@ O importador lê o JSON em fluxo e preserva os valores existentes. Cada propried
 
 O limite de upload é `MAX_JSON_MB` (padrão **512 MB**). Cada item individual pode ter até **16 MB**; o JSON pode conter até **200 grupos** e **1 milhão de itens**. Um objeto profundamente aninhado que exceda 16 MB em um único item precisa ser dividido antes da importação. A API da opção MySQL usa páginas de até 100 itens e gravações por item, para evitar ler e salvar o arquivo inteiro a cada alteração.
 
+Em processadores antigos sem suporte a `x86-64-v2`, a imagem padrão `mysql:8.4` pode encerrar com erro da glibc. Para testes locais nesse hardware, defina `MYSQL_IMAGE=mysql:8.4.0-oraclelinux8` no `.env`; essa tag antiga não recebe atualizações e não deve ser usada em produção. Consulte a [limitação de CPU documentada pela imagem oficial](https://github.com/docker-library/mysql/issues/1055).
+
 Os campos de cada item ficam em uma coluna JSON do MySQL, dentro de tabelas organizadas por banco, grupo e registro. Isso preserva estruturas arbitrárias sem impor uma remodelagem ao site. A melhora de velocidade depende de o site adaptado usar paginação e operações por item; buscas avançadas por campos específicos podem exigir índices adicionais no futuro.
 
 O banco vazio começa sem tabelas; o arquivo `estrutura.sql` define as tabelas que a aplicação usará. Os bancos JSON cadastrados em versões anteriores continuam na modalidade antiga; não há conversão automática nem perda dos arquivos anteriores.
