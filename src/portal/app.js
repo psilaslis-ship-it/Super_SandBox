@@ -253,7 +253,7 @@ function mysqlPrompt(db, structure, mode = 'app') {
   const legacyJson = db.kind !== 'mysql';
   const apiDetails = imported
     ? [
-      'Contrato da API para JSON importado:',
+      'Contrato da API MySQL para dados importados de JSON:',
       '',
       '1. Valide a conex\u00e3o com GET ' + db.url + '/collections e envie Authorization: Bearer <chave>. O corpo de sucesso \u00e9 um envelope, n\u00e3o o JSON original:',
       '~~~json',
@@ -267,13 +267,17 @@ function mysqlPrompt(db, structure, mode = 'app') {
       '~~~',
       'Se nextCursor n\u00e3o for null, repita incluindo &cursor=<nextCursor> at\u00e9 terminar. data \u00e9 o valor original e pode ser objeto, lista, texto, n\u00famero, booleano ou null. O id externo e o etag pertencem ao portal; n\u00e3o substitua um campo id existente dentro de data.',
       '',
-      '3. Reconstrua o JSON conforme Formato original da raiz e os grupos: raiz object vira um objeto cujas propriedades s\u00e3o os nomes dos grupos; kind=list vira um array com os valores data na ordem recebida; kind=single vira o \u00fanico valor data. Raiz array usa o grupo Itens; raiz escalar usa Conte\u00fado. Uma lista vazia com count 0 \u00e9 v\u00e1lida. Se faltarem grupos que a aplica\u00e7\u00e3o precisa, informe os nomes ausentes; n\u00e3o diga que a API falhou.',
+      '3. Esta API n\u00e3o devolve o documento JSON original inteiro. Ela devolve os metadados dos grupos em /collections e os registros paginados em /records. Use cada campo data para alimentar o modelo interno da aplica\u00e7\u00e3o, mantendo a interface e as regras de neg\u00f3cio. kind=list indica um grupo com v\u00e1rios registros; kind=single indica um valor. count:0 representa um grupo vazio, n\u00e3o uma falha. Se faltarem grupos que a aplica\u00e7\u00e3o exigir, mostre os nomes ausentes.',
       '',
-      '4. Para criar, envie POST para ' + db.url + '/collections/<id>/records com Content-Type: application/json e o valor JSON do item no corpo. Para editar, use PUT em ' + db.url + '/collections/<id>/records/<recordId> com o valor completo e If-Match igual ao etag do item lido. Para remover, use DELETE na mesma rota com o mesmo If-Match. Cria\u00e7\u00e3o/edi\u00e7\u00e3o retornam um item no formato:',
+      '4. Para criar, envie POST para ' + db.url + '/collections/<id>/records com Content-Type: application/json. O corpo recebe diretamente o valor do registro, sem envelope data. Exemplo do corpo enviado:',
+      '~~~json',
+      JSON.stringify({ id: 1, nome: 'Caderno' }, null, 2),
+      '~~~',
+      'Para editar, use PUT em ' + db.url + '/collections/<id>/records/<recordId> com o mesmo formato de corpo e If-Match igual ao etag do item lido. POST retorna HTTP 201; cria\u00e7\u00e3o e edi\u00e7\u00e3o retornam um item neste envelope:',
       '~~~json',
       JSON.stringify({ id: '89abcdef01234567', data: { id: 1, nome: 'Caderno' }, etag: '"2"' }, null, 2),
       '~~~',
-      'N\u00e3o envie o JSON inteiro em PUT para as rotas de cole\u00e7\u00f5es: cada chamada grava um registro. Preserve IDs/ETags e altere apenas itens modificados.'
+      'Para remover, use DELETE na rota do item com If-Match e etag do registro; a resposta \u00e9 {ok:true}. Cada chamada altera um registro. Preserve os IDs/ETags externos e atualize somente os itens modificados.'
     ].join('\n')
     : [
       'Contrato da API de tabelas SQL:',
@@ -286,7 +290,7 @@ function mysqlPrompt(db, structure, mode = 'app') {
       '~~~json',
       JSON.stringify({ items: [ { id: '1', data: { nome: 'Caderno' }, etag: '"1"' } ], nextCursor: null }, null, 2),
       '~~~',
-      'POST em /tables/<tabela>/rows cria um registro. PUT ou DELETE em /tables/<tabela>/rows/<id> exige If-Match com o etag lido. As respostas de cria\u00e7\u00e3o/edi\u00e7\u00e3o incluem id, data e etag. IDs externos s\u00e3o strings e podem ser diferentes do campo id de neg\u00f3cio.'
+      'POST em /tables/<tabela>/rows recebe no corpo um objeto JSON puro com colunas da tabela, sem envelope data, e retorna HTTP 201 com id, data e etag. PUT em /tables/<tabela>/rows/<id> recebe o objeto de colunas puro e If-Match com o etag lido; a resposta cont\u00e9m id, data e o novo etag. DELETE na mesma rota exige If-Match e retorna {ok:true}. IDs externos s\u00e3o strings e podem ser diferentes do campo id de neg\u00f3cio.'
     ].join('\n');
   if (mode === 'schema') {
     return `Crie um arquivo SQL para ${tables ? 'atualizar a estrutura existente' : 'criar a estrutura inicial'} deste banco, preservando todos os registros atuais. O arquivo será aplicado por uma ferramenta que isola cada banco.
@@ -341,7 +345,7 @@ Implemente e teste a aplicação usando a API documentada. Descreva os arquivos 
 
 Endereço da API: ${db.url}
 Origem dos dados: ${imported ? 'JSON importado, organizado em grupos' : 'banco com estrutura SQL'}.
-Formato original da raiz: ${db.summary?.rootType || 'object'}.
+Formato da raiz do JSON de origem (refer\u00eancia do formato do site; n\u00e3o \u00e9 formato de resposta da API): ${db.summary?.rootType || 'object'}.
 Grupos existentes:
 ${groups || '- Nenhum grupo.'}
 Tabelas personalizadas:
