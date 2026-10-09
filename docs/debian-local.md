@@ -30,6 +30,8 @@ Se a instalação acusar conflito com pacotes Docker anteriores, siga a seção 
 ## 2. Baixar e iniciar o projeto
 
 ```bash
+sudo apt-get update
+sudo apt-get install -y git curl
 git clone https://github.com/psilaslis-ship-it/Super_SandBox.git
 cd Super_SandBox
 sudo docker compose up --build -d
