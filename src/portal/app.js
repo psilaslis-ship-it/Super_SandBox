@@ -222,6 +222,10 @@ $('#logout').addEventListener('click', async () => {
 function promptFor(db) {
   return `Adapte esta aplicação HTML/CSS/JavaScript para usar um banco JSON acessível por API HTTP, mantendo sua interface, regras de negócio e estrutura do JSON.
 
+REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
+
+CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
+
 Endereço público do banco: ${db.url}
 Identificador do banco: ${db.id}
 
@@ -316,6 +320,10 @@ Confira que o SQL contém apenas estrutura, sem dados de acesso ou chaves. Prese
   if (!imported && structure.tables.length === 0) {
     return `Adapte esta aplicação HTML/CSS/JavaScript mantendo sua arquitetura, telas, navegação, formato dos objetos e regras de negócio. Altere somente o acesso aos dados e o fluxo de conexão.
 
+REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
+
+CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
+
 Antes de concluir, crie um arquivo estrutura.sql com as tabelas e colunas necessárias para a aplicação. Use nomes simples de tabela e coluna. Não inclua PRIMARY KEY, AUTO_INCREMENT, DROP, DELETE, TRUNCATE, usuários, permissões ou comandos de conexão; o serviço adiciona IDs internos e aplica o SQL isolado para este banco. Para novas colunas obrigatórias, defina DEFAULT.
 
 Endereço da API: ${db.url}
@@ -342,6 +350,10 @@ Implemente e teste a aplicação usando a API documentada. Descreva os arquivos 
   }
 
   return `Adapte esta aplicação HTML/CSS/JavaScript para usar os dados deste banco MySQL por meio da API HTTP. Preserve as telas, regras de negócio, fluxo e formato atual dos dados. Altere apenas a camada que lê e salva.
+
+REGRA OBRIGATÓRIA DE PRESERVAÇÃO: mantenha todos os textos, acentos, símbolos, nomes, funcionalidades e comportamentos que já existem. Não traduza, não reescreva textos e não remova conteúdo. Faça a menor alteração possível, somente na camada de leitura e gravação de dados e na conexão. Não reformate nem recrie arquivos inteiros sem necessidade. Preserve os arquivos e a estrutura do projeto.
+
+CODIFICAÇÃO OBRIGATÓRIA: leia os arquivos respeitando a codificação real de cada um. Preserve a codificação existente; se precisar salvar arquivos de texto, use UTF-8 válido e mantenha <meta charset="utf-8"> nos HTML. Nunca converta acentos para caracteres corrompidos (por exemplo, "Ã¡" ou "�"), não remova acentos e não faça transliteração. Preserve corretamente ç, ã, õ, á, é, í, ó, ú, símbolos e outros caracteres Unicode em telas, arquivos, dados e conteúdo enviado/recebido pela API. Não altere arquivos que não precisem de mudança.
 
 Endereço da API: ${db.url}
 Origem dos dados: ${imported ? 'JSON importado, organizado em grupos' : 'banco com estrutura SQL'}.
