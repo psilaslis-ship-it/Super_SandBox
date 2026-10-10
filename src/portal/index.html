@@ -11,12 +11,26 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <aside id="portal-sidebar" class="sidebar" aria-label="Menu principal" hidden>
+    <div class="sidebar-brand"><img src="/brand-icon.svg" width="42" height="42" alt=""><div><strong>Super Sandbox</strong><small>Área de trabalho</small></div></div>
+    <div class="sidebar-group-label">NAVEGAÇÃO</div>
+    <nav class="sidebar-nav" aria-label="Seções do portal">
+      <a href="#overview" data-nav-section="overview" class="is-active" aria-current="location"><span class="nav-number">00</span><span>Visão geral</span></a>
+      <a href="#data-section" data-nav-section="data-section"><span class="nav-number">01</span><span>Meus dados</span></a>
+      <a href="#instructions-section" data-nav-section="instructions-section"><span class="nav-number">02</span><span>Instruções para o site</span></a>
+      <a href="#sites-section" data-nav-section="sites-section"><span class="nav-number">03</span><span>Sites publicados</span></a>
+    </nav>
+    <div class="sidebar-foot"><span class="sidebar-foot-dot" aria-hidden="true"></span><div><strong>Ambiente local</strong><small>Gerencie seus dados e publicações</small></div></div>
+  </aside>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Fechar menu" hidden></button>
   <header class="topbar">
     <div class="brand"><img class="brand-mark" src="/brand-icon.svg" width="40" height="40" alt=""><span>Super Sandbox</span></div>
+    <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Abrir menu" aria-controls="portal-sidebar" aria-expanded="false" hidden><span></span><span></span><span></span></button>
+    <div id="topbar-context" class="topbar-context" hidden><small>PAINEL DE CONTROLE</small><strong id="current-section-label">Visão geral</strong></div>
     <button id="logout" class="quiet-button" type="button" hidden>Sair</button>
   </header>
 
-  <main>
+  <main id="portal-main">
     <div id="startup-loading" class="startup-loading" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span>Carregando o portal…</div>
     <section id="auth-panel" class="auth-panel" hidden>
       <span class="eyebrow">ACESSO AO PORTAL</span>
@@ -33,14 +47,18 @@
     </section>
 
     <div id="dashboard" hidden>
-      <section class="intro">
-        <img class="intro-mark" src="/brand-icon.svg" width="68" height="68" alt="">
-        <div class="eyebrow"><span class="live-dot"></span> SEU ESPAÇO DE TRABALHO</div>
-        <h1>Seus dados.<br><em>Seu site no ar.</em></h1>
-        <p>Prepare os dados, adapte seu site com as instruções prontas e publique quando quiser.</p>
+      <section id="overview" class="intro" aria-labelledby="overview-title">
+        <div class="eyebrow"><span class="live-dot"></span> VISÃO GERAL</div>
+        <h1 id="overview-title">Tudo pronto para <em>seguir em frente.</em></h1>
+        <p>Organize seus dados, prepare a conexão do site e publique em um só lugar.</p>
+        <div class="overview-metrics" aria-label="Resumo do portal">
+          <div class="metric"><span>Bancos de dados</span><strong id="overview-database-count">—</strong><small>Espaços cadastrados</small></div>
+          <div class="metric"><span>Sites publicados</span><strong id="overview-site-count">—</strong><small>Links disponíveis</small></div>
+          <div class="metric metric-security"><span>Acesso aos dados</span><strong>Protegido</strong><small>Chaves individuais por banco</small></div>
+        </div>
       </section>
 
-      <section class="panel" aria-labelledby="databases-title">
+      <section id="data-section" class="panel" aria-labelledby="databases-title">
         <div class="panel-heading"><span class="section-number">ETAPA 01</span><h2 id="databases-title">Prepare seus dados</h2></div>
         <p class="section-copy">Escolha como começar. Seus dados ficarão disponíveis para o seu site com acesso protegido por chave.</p>
         <div class="choice-grid" role="group" aria-label="Como deseja começar">
@@ -65,7 +83,7 @@
         <div id="database-list" class="record-list"></div>
       </section>
 
-      <section class="panel" aria-labelledby="prompt-title">
+      <section id="instructions-section" class="panel" aria-labelledby="prompt-title">
         <div class="panel-heading"><span class="section-number">ETAPA 02</span><h2 id="prompt-title">Adapte seu site</h2></div>
         <p class="section-copy">Escolha seus dados e entregue estas instruções ao assistente de IA que você usa. Ele ajustará a forma de ler e salvar, preservando as telas e as regras do seu site.</p>
         <label for="prompt-database">Escolha os dados</label>
@@ -79,7 +97,7 @@
         <div class="prompt-actions"><button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instruções</button><button id="download-prompt" class="secondary-button" type="button" disabled>Baixar arquivo .md</button></div>
       </section>
 
-      <section class="panel" aria-labelledby="upload-title">
+      <section id="sites-section" class="panel" aria-labelledby="upload-title">
         <div class="panel-heading"><span class="section-number">ETAPA 03</span><h2 id="upload-title">Publique seu site</h2></div>
         <p class="section-copy">Quando estiver pronto, envie o site em um arquivo ZIP. Você receberá um link para acessá-lo.</p>
         <form id="upload-form" class="upload-form">

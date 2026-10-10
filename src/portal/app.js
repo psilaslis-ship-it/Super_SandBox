@@ -8,6 +8,10 @@ const promptSelect = $('#prompt-database');
 const promptBox = $('#ai-prompt');
 const keyDialog = $('#key-dialog');
 const actionDialog = $('#action-dialog');
+const sidebar = $('#portal-sidebar');
+const navToggle = $('#nav-toggle');
+const sidebarBackdrop = $('#sidebar-backdrop');
+const navLinks = [...document.querySelectorAll('[data-nav-section]')];
 let activeDialog = null;
 let setupRequired = false;
 let databases = [];
@@ -19,6 +23,56 @@ let visibleSecretDatabaseId = null;
 let visibleSecretKeyId = null;
 const copyLabels = new WeakMap();
 const copyTimers = new WeakMap();
+
+function setMenuOpen(open, restoreFocus = false) {
+  document.body.classList.toggle('nav-open', open);
+  sidebar.inert = window.innerWidth <= 900 && !open;
+  navToggle.setAttribute('aria-expanded', String(open));
+  navToggle.setAttribute('aria-label', open ? 'Fechar menu' : 'Abrir menu');
+  sidebarBackdrop.hidden = !open;
+  if (open) navLinks[0].focus();
+  else if (restoreFocus) navToggle.focus();
+}
+
+function updateActiveSection() {
+  if (dashboard.hidden) return;
+  let current = navLinks[0];
+  for (const link of navLinks) {
+    if (document.getElementById(link.dataset.navSection).getBoundingClientRect().top <= 160) current = link;
+  }
+  for (const link of navLinks) {
+    const selected = link === current;
+    link.classList.toggle('is-active', selected);
+    if (selected) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  }
+  $('#current-section-label').textContent = current.lastElementChild.textContent;
+}
+
+navToggle.addEventListener('click', () => setMenuOpen(!document.body.classList.contains('nav-open')));
+sidebarBackdrop.addEventListener('click', () => setMenuOpen(false, true));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && document.body.classList.contains('nav-open')) setMenuOpen(false, true);
+});
+for (const link of navLinks) link.addEventListener('click', () => {
+  if (document.body.classList.contains('nav-open')) {
+    setMenuOpen(false);
+    const section = document.getElementById(link.dataset.navSection);
+    section.tabIndex = -1;
+    section.focus({ preventScroll: true });
+  }
+  requestAnimationFrame(updateActiveSection);
+});
+let navScrollFrame = 0;
+window.addEventListener('scroll', () => {
+  if (navScrollFrame) return;
+  navScrollFrame = requestAnimationFrame(() => { navScrollFrame = 0; updateActiveSection(); });
+}, { passive: true });
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 900 && document.body.classList.contains('nav-open')) setMenuOpen(false);
+  sidebar.inert = window.innerWidth <= 900 && !document.body.classList.contains('nav-open');
+  updateActiveSection();
+});
 
 function updateQuotaButtons(appCount) {
   $('#database-form button[type=submit]').disabled = databases.length >= portalLimits.maxDatabases || !portalLimits.mysqlAvailable;
@@ -235,6 +289,11 @@ $('#download-prompt').addEventListener('click', () => {
 function showAuth(setup) {
   $('#startup-loading').hidden = true;
   setupRequired = setup;
+  setMenuOpen(false);
+  document.body.classList.remove('is-dashboard');
+  sidebar.hidden = true;
+  navToggle.hidden = true;
+  $('#topbar-context').hidden = true;
   authPanel.hidden = false;
   dashboard.hidden = true;
   $('#logout').hidden = true;
@@ -252,11 +311,20 @@ function showAuth(setup) {
 
 async function showDashboard() {
   $('#startup-loading').hidden = true;
+  document.body.classList.add('is-dashboard');
+  sidebar.hidden = false;
+  setMenuOpen(false);
+  navToggle.hidden = false;
+  $('#topbar-context').hidden = false;
   authPanel.hidden = true;
   dashboard.hidden = false;
   $('#logout').hidden = false;
   await loadDatabases();
   await loadApps();
+  if (navLinks.some(link => `#${link.dataset.navSection}` === location.hash)) {
+    document.getElementById(location.hash.slice(1)).scrollIntoView();
+  }
+  updateActiveSection();
 }
 
 authForm.addEventListener('submit', async event => {
@@ -494,6 +562,7 @@ async function loadDatabases() {
   showListLoading(databaseList, 'Carregando bancos…');
   try {
     databases = await api('/api/databases');
+    $('#overview-database-count').textContent = databases.length;
     $('#database-count').textContent = `${databases.length} de ${portalLimits.maxDatabases} disponíveis`;
     updateQuotaButtons();
     const selected = promptSelect.value;
@@ -661,6 +730,7 @@ async function loadApps() {
   showListLoading(appsList, 'Carregando aplicações…');
   try {
     const apps = await api('/api/apps');
+    $('#overview-site-count').textContent = apps.length;
     publishedApps = apps.length;
     publishedAppNames = new Set(apps.map(app => app.name));
     $('#apps-count').textContent = `${apps.length} de ${portalLimits.maxApps} disponíveis`;
