@@ -15,10 +15,10 @@
     <div class="sidebar-brand"><img src="/brand-icon.svg" width="42" height="42" alt=""><div><strong>Super Sandbox</strong><small>Área de trabalho</small></div></div>
     <div class="sidebar-group-label">NAVEGAÇÃO</div>
     <nav class="sidebar-nav" aria-label="Seções do portal">
-      <a href="#overview" data-nav-section="overview" class="is-active" aria-current="location"><span class="nav-number">00</span><span>Visão geral</span></a>
-      <a href="#data-section" data-nav-section="data-section"><span class="nav-number">01</span><span>Meus dados</span></a>
-      <a href="#instructions-section" data-nav-section="instructions-section"><span class="nav-number">02</span><span>Instruções para o site</span></a>
-      <a href="#sites-section" data-nav-section="sites-section"><span class="nav-number">03</span><span>Sites publicados</span></a>
+      <a href="#overview" data-nav-section="overview" class="is-active" aria-current="page" aria-controls="overview"><span class="nav-number">00</span><span>Visão geral</span></a>
+      <a href="#data-section" data-nav-section="data-section" aria-controls="data-section"><span class="nav-number">01</span><span>Meus dados</span></a>
+      <a href="#instructions-section" data-nav-section="instructions-section" aria-controls="instructions-section"><span class="nav-number">02</span><span>Instruções para o site</span></a>
+      <a href="#sites-section" data-nav-section="sites-section" aria-controls="sites-section"><span class="nav-number">03</span><span>Sites publicados</span></a>
     </nav>
     <div class="sidebar-foot"><span class="sidebar-foot-dot" aria-hidden="true"></span><div><strong>Ambiente local</strong><small>Gerencie seus dados e publicações</small></div></div>
   </aside>
@@ -49,21 +49,22 @@
     <div id="dashboard" hidden>
       <section id="overview" class="intro" aria-labelledby="overview-title">
         <div class="eyebrow"><span class="live-dot"></span> VISÃO GERAL</div>
-        <h1 id="overview-title">Tudo pronto para <em>seguir em frente.</em></h1>
-        <p>Organize seus dados, prepare a conexão do site e publique em um só lugar.</p>
+        <h1 id="overview-title">Gerencie seus dados e sites.</h1>
+        <p>Use o menu para importar dados, preparar seu site e publicar uma nova versão.</p>
         <div class="overview-metrics" aria-label="Resumo do portal">
-          <div class="metric"><span>Bancos de dados</span><strong id="overview-database-count">—</strong><small>Espaços cadastrados</small></div>
-          <div class="metric"><span>Sites publicados</span><strong id="overview-site-count">—</strong><small>Links disponíveis</small></div>
-          <div class="metric metric-security"><span>Acesso aos dados</span><strong>Protegido</strong><small>Chaves individuais por banco</small></div>
+          <div class="metric"><strong id="overview-database-count">—</strong><span>Bancos de dados</span></div>
+          <div class="metric"><strong id="overview-site-count">—</strong><span>Sites publicados</span></div>
+          <div class="metric metric-security"><strong>Protegido</strong><span>Acesso por chave individual</span></div>
         </div>
+        <div class="overview-guide"><h2>Como usar</h2><ol><li>Prepare ou importe seus dados em <strong>Meus dados</strong>.</li><li>Copie as orientações em <strong>Instruções para o site</strong>.</li><li>Envie o ZIP e acompanhe o link em <strong>Sites publicados</strong>.</li></ol></div>
       </section>
 
-      <section id="data-section" class="panel" aria-labelledby="databases-title">
-        <div class="panel-heading"><span class="section-number">ETAPA 01</span><h2 id="databases-title">Prepare seus dados</h2></div>
+      <section id="data-section" class="panel" aria-labelledby="databases-title" hidden>
+        <div class="panel-heading"><span class="section-number">DADOS</span><h2 id="databases-title">Bancos de dados</h2></div>
         <p class="section-copy">Escolha como começar. Seus dados ficarão disponíveis para o seu site com acesso protegido por chave.</p>
         <div class="choice-grid" role="group" aria-label="Como deseja começar">
-          <button id="choice-import" class="choice-card is-selected" type="button" aria-pressed="true"><span class="choice-icon">↥</span><strong>Já tenho meus dados</strong><small>Envie seu arquivo JSON. Organizaremos os dados para o novo banco.</small></button>
-          <button id="choice-empty" class="choice-card" type="button" aria-pressed="false"><span class="choice-icon">＋</span><strong>Começar do zero</strong><small>Crie um espaço vazio e prepare seu site para preenchê-lo.</small></button>
+          <button id="choice-import" class="choice-card is-selected" type="button" aria-pressed="true"><strong>Importar meus dados</strong><small>Enviar um arquivo JSON existente</small></button>
+          <button id="choice-empty" class="choice-card" type="button" aria-pressed="false"><strong>Criar banco vazio</strong><small>Definir a estrutura depois</small></button>
         </div>
         <form id="database-form" class="upload-form">
           <label class="file-drop" for="database-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="database-file-label">Clique ou arraste seu arquivo JSON aqui</strong><small id="database-file-limit">Limite configurado pelo portal</small></label>
@@ -79,12 +80,12 @@
           <div class="secret-heading"><strong id="secret-title">Chave criada</strong><span>Guarde em local seguro. Você também poderá consultá-la na lista abaixo.</span></div>
           <div class="copy-field"><code id="secret-token"></code><button id="copy-token" type="button">Copiar chave</button></div>
         </div>
-        <div class="subheading"><h3>Meus dados</h3><span id="database-count"></span></div>
+        <div class="subheading"><h3>Bancos cadastrados</h3><span id="database-count"></span></div>
         <div id="database-list" class="record-list"></div>
       </section>
 
-      <section id="instructions-section" class="panel" aria-labelledby="prompt-title">
-        <div class="panel-heading"><span class="section-number">ETAPA 02</span><h2 id="prompt-title">Adapte seu site</h2></div>
+      <section id="instructions-section" class="panel" aria-labelledby="prompt-title" hidden>
+        <div class="panel-heading"><span class="section-number">INSTRUÇÕES</span><h2 id="prompt-title">Adapte seu site</h2></div>
         <p class="section-copy">Escolha seus dados e entregue estas instruções ao assistente de IA que você usa. Ele ajustará a forma de ler e salvar, preservando as telas e as regras do seu site.</p>
         <label for="prompt-database">Escolha os dados</label>
         <select id="prompt-database"><option value="">Selecione um banco</option></select>
@@ -97,8 +98,8 @@
         <div class="prompt-actions"><button id="copy-prompt" class="secondary-button" type="button" disabled>Copiar instruções</button><button id="download-prompt" class="secondary-button" type="button" disabled>Baixar arquivo .md</button></div>
       </section>
 
-      <section id="sites-section" class="panel" aria-labelledby="upload-title">
-        <div class="panel-heading"><span class="section-number">ETAPA 03</span><h2 id="upload-title">Publique seu site</h2></div>
+      <section id="sites-section" class="panel" aria-labelledby="upload-title" hidden>
+        <div class="panel-heading"><span class="section-number">SITES</span><h2 id="upload-title">Publique seu site</h2></div>
         <p class="section-copy">Quando estiver pronto, envie o site em um arquivo ZIP. Você receberá um link para acessá-lo.</p>
         <form id="upload-form" class="upload-form">
           <label class="file-drop" for="zip-file"><span class="upload-icon" aria-hidden="true">↑</span><strong id="zip-file-label">Clique ou arraste seu site em ZIP aqui</strong><small>Até 50 MB</small></label>

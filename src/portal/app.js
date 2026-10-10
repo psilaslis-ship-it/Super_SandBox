@@ -34,19 +34,20 @@ function setMenuOpen(open, restoreFocus = false) {
   else if (restoreFocus) navToggle.focus();
 }
 
-function updateActiveSection() {
-  if (dashboard.hidden) return;
-  let current = navLinks[0];
-  for (const link of navLinks) {
-    if (document.getElementById(link.dataset.navSection).getBoundingClientRect().top <= 160) current = link;
-  }
+function selectView(id, updateAddress = false) {
+  const current = navLinks.find(link => link.dataset.navSection === id) || navLinks[0];
   for (const link of navLinks) {
     const selected = link === current;
     link.classList.toggle('is-active', selected);
-    if (selected) link.setAttribute('aria-current', 'location');
+    document.getElementById(link.dataset.navSection).hidden = !selected;
+    if (selected) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
   $('#current-section-label').textContent = current.lastElementChild.textContent;
+  if (updateAddress && location.hash !== `#${current.dataset.navSection}`) {
+    history.pushState(null, '', `#${current.dataset.navSection}`);
+  }
+  window.scrollTo(0, 0);
 }
 
 navToggle.addEventListener('click', () => setMenuOpen(!document.body.classList.contains('nav-open')));
@@ -54,24 +55,21 @@ sidebarBackdrop.addEventListener('click', () => setMenuOpen(false, true));
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape' && document.body.classList.contains('nav-open')) setMenuOpen(false, true);
 });
-for (const link of navLinks) link.addEventListener('click', () => {
+for (const link of navLinks) link.addEventListener('click', event => {
+  event.preventDefault();
+  selectView(link.dataset.navSection, true);
   if (document.body.classList.contains('nav-open')) {
     setMenuOpen(false);
     const section = document.getElementById(link.dataset.navSection);
     section.tabIndex = -1;
     section.focus({ preventScroll: true });
   }
-  requestAnimationFrame(updateActiveSection);
 });
-let navScrollFrame = 0;
-window.addEventListener('scroll', () => {
-  if (navScrollFrame) return;
-  navScrollFrame = requestAnimationFrame(() => { navScrollFrame = 0; updateActiveSection(); });
-}, { passive: true });
+window.addEventListener('popstate', () => { if (!dashboard.hidden) selectView(location.hash.slice(1)); });
+window.addEventListener('hashchange', () => { if (!dashboard.hidden) selectView(location.hash.slice(1)); });
 window.addEventListener('resize', () => {
   if (window.innerWidth > 900 && document.body.classList.contains('nav-open')) setMenuOpen(false);
   sidebar.inert = window.innerWidth <= 900 && !document.body.classList.contains('nav-open');
-  updateActiveSection();
 });
 
 function updateQuotaButtons(appCount) {
@@ -319,12 +317,9 @@ async function showDashboard() {
   authPanel.hidden = true;
   dashboard.hidden = false;
   $('#logout').hidden = false;
+  selectView(location.hash.slice(1));
   await loadDatabases();
   await loadApps();
-  if (navLinks.some(link => `#${link.dataset.navSection}` === location.hash)) {
-    document.getElementById(location.hash.slice(1)).scrollIntoView();
-  }
-  updateActiveSection();
 }
 
 authForm.addEventListener('submit', async event => {
