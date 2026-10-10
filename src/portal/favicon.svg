@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <title>Super Sandbox</title>
-  <rect x="3" y="3" width="58" height="58" rx="16" fill="#ab2e35"/>
-  <path d="M44 19H28c-6.5 0-10 3.5-10 8.5S21.5 36 28 36h8c6.5 0 10 3.5 10 8.5S42.5 53 36 53H20" fill="none" stroke="#ffcf47" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#862a32"/><stop offset="1" stop-color="#3c1827"/></linearGradient>
+    <linearGradient id="top" x2="1" y2="1"><stop stop-color="#ffe48a"/><stop offset="1" stop-color="#ffbd36"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#bg)" stroke="#e18753" stroke-width="2"/>
+  <path d="M32 11 53 23 32 35 11 23Z" fill="url(#top)"/>
+  <path d="M11 27 30 38v17L11 44Z" fill="#f2744e"/>
+  <path d="m34 38 19-11v17L34 55Z" fill="#ffce4b"/>
+  <path d="m23 23 9-5 9 5-9 5Z" fill="#72262a"/>
 </svg>

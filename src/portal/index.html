@@ -12,7 +12,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><img class="brand-mark" src="/favicon.svg" width="34" height="34" alt=""><span>Super Sandbox</span></div>
+    <div class="brand"><img class="brand-mark" src="/brand-icon.svg" width="40" height="40" alt=""><span>Super Sandbox</span></div>
     <button id="logout" class="quiet-button" type="button" hidden>Sair</button>
   </header>
 
@@ -34,6 +34,7 @@
 
     <div id="dashboard" hidden>
       <section class="intro">
+        <img class="intro-mark" src="/brand-icon.svg" width="68" height="68" alt="">
         <div class="eyebrow"><span class="live-dot"></span> SEU ESPAÇO DE TRABALHO</div>
         <h1>Seus dados.<br><em>Seu site no ar.</em></h1>
         <p>Prepare os dados, adapte seu site com as instruções prontas e publique quando quiser.</p>
@@ -92,7 +93,23 @@
       </section>
     </div>
   </main>
-  <dialog id="key-dialog" class="key-dialog" aria-labelledby="key-dialog-title">
+  <dialog id="action-dialog" class="portal-dialog" aria-labelledby="action-dialog-title" aria-describedby="action-dialog-message">
+    <div class="dialog-mark" aria-hidden="true"><span id="action-dialog-symbol">✓</span></div>
+    <span id="action-dialog-eyebrow" class="eyebrow">CONFIRMAÇÃO</span>
+    <h2 id="action-dialog-title"></h2>
+    <p id="action-dialog-message"></p>
+    <form id="action-dialog-form" novalidate>
+      <label id="action-dialog-label" for="action-dialog-input" hidden>Nome exibido no cartão</label>
+      <input id="action-dialog-input" type="text" maxlength="100" autocomplete="off" hidden>
+      <p id="action-dialog-error" class="dialog-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button id="action-dialog-cancel" class="secondary-button" type="button">Cancelar</button>
+        <button id="action-dialog-submit" class="dialog-primary" type="submit">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="key-dialog" class="portal-dialog key-dialog" aria-labelledby="key-dialog-title" aria-describedby="key-dialog-description">
+    <div class="dialog-mark dialog-mark-key" aria-hidden="true">✦</div>
     <span class="eyebrow">CHAVE DE ACESSO</span>
     <h2 id="key-dialog-title"></h2>
     <p id="key-dialog-description"></p>

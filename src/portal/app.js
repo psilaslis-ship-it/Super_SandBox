@@ -7,6 +7,8 @@ const appsList = $('#apps-list');
 const promptSelect = $('#prompt-database');
 const promptBox = $('#ai-prompt');
 const keyDialog = $('#key-dialog');
+const actionDialog = $('#action-dialog');
+let activeDialog = null;
 let setupRequired = false;
 let databases = [];
 let publishedApps = 0;
@@ -136,11 +138,81 @@ function showKeyDialog(token, title, description) {
   $('#key-dialog-token').textContent = token;
   keyDialog.showModal();
 }
+
+function openDialog({ mode = 'confirm', title, message, value = '', confirmText = 'Confirmar', danger = false }) {
+  if (actionDialog.open) throw new Error('Já existe uma janela aberta.');
+  actionDialog.dataset.intent = danger ? 'danger' : mode;
+  $('#action-dialog-symbol').textContent = mode === 'rename' ? '✎' : danger ? '!' : mode === 'notice' ? 'i' : '✓';
+  $('#action-dialog-eyebrow').textContent = mode === 'rename' ? 'PERSONALIZAR CARTÃO' : mode === 'notice' ? 'AVISO' : 'CONFIRMAÇÃO';
+  $('#action-dialog-title').textContent = title;
+  $('#action-dialog-message').textContent = message;
+  $('#action-dialog-input').hidden = mode !== 'rename';
+  $('#action-dialog-label').hidden = mode !== 'rename';
+  $('#action-dialog-input').value = value;
+  $('#action-dialog-error').hidden = true;
+  $('#action-dialog-cancel').hidden = mode === 'notice';
+  $('#action-dialog-submit').textContent = confirmText;
+  actionDialog.showModal();
+  if (mode === 'rename') $('#action-dialog-input').focus();
+  else $('#action-dialog-submit').focus();
+  return new Promise(resolve => { activeDialog = { mode, resolve }; });
+}
+
+function closeActionDialog(result = null) {
+  if (!activeDialog) return;
+  const { resolve } = activeDialog;
+  activeDialog = null;
+  actionDialog.close();
+  resolve(result);
+}
+
+$('#action-dialog-cancel').addEventListener('click', () => closeActionDialog());
+$('#action-dialog-form').addEventListener('submit', event => {
+  event.preventDefault();
+  if (!activeDialog) return;
+  if (activeDialog.mode === 'rename') {
+    const value = $('#action-dialog-input').value.trim();
+    if (!value) {
+      $('#action-dialog-error').textContent = 'Digite um nome para o cartão.';
+      $('#action-dialog-error').hidden = false;
+      $('#action-dialog-input').focus();
+      return;
+    }
+    closeActionDialog(value);
+  } else closeActionDialog(true);
+});
+actionDialog.addEventListener('close', () => {
+  if (activeDialog) { activeDialog.resolve(null); activeDialog = null; }
+});
+actionDialog.addEventListener('click', event => { if (event.target === actionDialog) closeActionDialog(); });
+const confirmAction = (title, message, confirmText = 'Confirmar', danger = false) =>
+  openDialog({ title, message, confirmText, danger });
+const showNotice = (message, title = 'Não foi possível concluir') =>
+  openDialog({ mode: 'notice', title, message, confirmText: 'Entendi' });
+
+async function renameCard(kind, item, button) {
+  const isDatabase = kind === 'database';
+  const displayName = item.displayName || item.name;
+  const next = await openDialog({ mode: 'rename', title: isDatabase ? 'Renomear banco' : 'Renomear site',
+    message: 'Este nome aparece apenas no cartão. O conteúdo e o endereço continuam iguais.',
+    value: displayName, confirmText: 'Salvar nome' });
+  if (next === null || next === displayName) return;
+  setBusy(button);
+  try {
+    await api(`/api/${isDatabase ? 'databases' : 'apps'}/${item.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: next }),
+    });
+    if (isDatabase) await loadDatabases();
+    else await loadApps();
+  } catch (error) { await showNotice(error.message); }
+  finally { clearBusy(button); }
+}
 $('#copy-token').addEventListener('click', () => copy($('#secret-token').textContent, $('#copy-token'), $('#secret-token')));
 $('#key-dialog-copy').addEventListener('click', () => copy(
   $('#key-dialog-token').textContent, $('#key-dialog-copy'), $('#key-dialog-token'), keyDialog));
 $('#key-dialog-close').addEventListener('click', () => keyDialog.close());
-keyDialog.addEventListener('cancel', event => event.preventDefault());
+keyDialog.addEventListener('click', event => { if (event.target === keyDialog) keyDialog.close(); });
 keyDialog.addEventListener('close', () => {
   $('#key-dialog-token').textContent = '';
   const button = $('#key-dialog-copy');
@@ -217,7 +289,7 @@ $('#logout').addEventListener('click', async () => {
     visibleSecretDatabaseId = null;
     visibleSecretKeyId = null;
     showAuth(false);
-  } catch (error) { alert(error.message); }
+  } catch (error) { await showNotice(error.message); }
   finally { clearBusy(button); }
 });
 
@@ -442,8 +514,10 @@ function renderDatabase(db) {
   const record = textNode('article', '', 'record');
   const head = textNode('div', '', 'record-head');
   const info = document.createElement('div');
-  info.append(textNode('strong', db.name), textNode('small', `${db.kind === 'mysql' ? (db.source === 'imported' ? 'Dados importados' : 'Espaço novo') : 'Arquivo JSON'} · ${new Date(db.createdAt).toLocaleString('pt-BR')}`));
+  info.append(textNode('strong', db.displayName || db.name), textNode('small', `${db.kind === 'mysql' ? (db.source === 'imported' ? 'Dados importados' : 'Espaço novo') : 'Arquivo JSON'} · ${new Date(db.createdAt).toLocaleString('pt-BR')}`));
   const actions = textNode('div', '', 'record-actions');
+  const rename = textNode('button', 'Renomear');
+  rename.type = 'button'; rename.addEventListener('click', () => renameCard('database', db, rename));
   const endpoint = textNode('p', db.url, 'endpoint');
   const copyButton = textNode('button', 'Copiar endereço');
   copyButton.type = 'button'; copyButton.addEventListener('click', () => copy(db.url, copyButton, endpoint));
@@ -452,7 +526,7 @@ function renderDatabase(db) {
   const remove = textNode('button', 'Apagar banco', 'danger-button');
   remove.type = 'button';
   remove.addEventListener('click', async () => {
-    if (!confirm(`Apagar os dados "${db.name}"? Todos os registros e chaves serão excluídos. Sites que usam estes dados perderão o acesso. Esta ação não pode ser desfeita.`)) return;
+    if (!await confirmAction('Apagar banco?', `"${db.displayName || db.name}" e todas as suas chaves serão excluídos. Sites que usam esses dados perderão o acesso. Esta ação não pode ser desfeita.`, 'Apagar banco', true)) return;
     setBusy(remove);
     try {
       await api(`/api/databases/${db.id}`, { method: 'DELETE' });
@@ -460,10 +534,10 @@ function renderDatabase(db) {
       await loadDatabases();
       await loadApps();
       $('#database-status').textContent = `Banco ${db.name} apagado.`;
-    } catch (error) { alert(error.message); }
+    } catch (error) { await showNotice(error.message); }
     finally { clearBusy(remove); }
   });
-  actions.append(copyButton, download, remove); head.append(info, actions);
+  actions.append(copyButton, download, rename, remove); head.append(info, actions);
   let sqlSection = null;
   if (db.kind === 'mysql' || portalLimits.mysqlAvailable) {
     sqlSection = textNode('details', '', 'sql-update');
@@ -499,7 +573,7 @@ function renderDatabase(db) {
       event.preventDefault();
       const file = fileInput.files[0]; if (!file) return;
       if (!file.name.toLowerCase().endsWith('.sql')) { sqlStatus.textContent = 'Selecione um arquivo .sql.'; return; }
-      if (!confirm(`Aplicar a atualização "${file.name}" em "${db.name}"? O portal aceita apenas alterações estruturais sem comandos para apagar dados.`)) return;
+      if (!await confirmAction('Aplicar atualização?', `O arquivo "${file.name}" atualizará a estrutura de "${db.displayName || db.name}". O portal aceita apenas alterações estruturais sem comandos para apagar dados.`, 'Aplicar atualização')) return;
       setBusy(submit, sqlStatus, 'Aplicando a atualização…', sqlForm);
       try {
         const formData = new FormData(); formData.append('file', file);
@@ -533,7 +607,7 @@ function renderDatabase(db) {
       await loadDatabases();
       showKeyDialog(payload.token, `Chave criada para ${payload.key.label}`,
         'Copie e guarde esta chave. Você poderá consultá-la novamente após entrar no portal.');
-    } catch (error) { alert(error.message); }
+    } catch (error) { await showNotice(error.message); }
     finally { clearBusy(create); create.removeAttribute('aria-label'); }
   });
   const keys = textNode('div', '', 'key-list');
@@ -544,7 +618,7 @@ function renderDatabase(db) {
     const reveal = textNode('button', key.canReveal ? 'Ver chave' : 'Gerar nova chave');
     reveal.type = 'button';
     reveal.addEventListener('click', async () => {
-      if (!key.canReveal && !confirm(`A chave antiga de ${key.label} não pode ser recuperada. Gerar uma nova vai invalidar a anterior. Aplicações que usam essa chave precisarão ser atualizadas. Continuar?`)) return;
+      if (!key.canReveal && !await confirmAction('Gerar nova chave?', `A chave antiga de ${key.label} não pode ser recuperada. A nova chave invalidará a anterior; os sites que a usam precisarão ser atualizados.`, 'Gerar nova chave', true)) return;
       setBusy(reveal);
       try {
         const action = key.canReveal ? 'reveal' : 'rotate';
@@ -558,19 +632,19 @@ function renderDatabase(db) {
           key.canReveal
             ? 'Copie esta chave. Ela também poderá ser consultada novamente após entrar no portal.'
             : 'A chave anterior deixou de funcionar. Atualize os acessos que usavam a chave antiga.');
-      } catch (error) { alert(error.message); }
+      } catch (error) { await showNotice(error.message); }
       finally { clearBusy(reveal); }
     });
     const revoke = textNode('button', 'Revogar'); revoke.type = 'button';
     revoke.addEventListener('click', async () => {
-      if (!confirm(`Revogar a chave de ${key.label}? O acesso será interrompido.`)) return;
+      if (!await confirmAction('Revogar chave?', `O acesso de ${key.label} será interrompido.`, 'Revogar chave', true)) return;
       setBusy(revoke);
       try {
         await api(`/api/databases/${db.id}/keys/${key.id}`, { method: 'DELETE' });
         hideSecretForDatabase(db.id, key.id);
         await loadDatabases();
       }
-      catch (error) { alert(error.message); }
+      catch (error) { await showNotice(error.message); }
       finally { clearBusy(revoke); }
     });
     keyActions.append(reveal, revoke);
@@ -597,7 +671,7 @@ async function loadApps() {
       const record = textNode('article', '', 'record');
       const head = textNode('div', '', 'record-head');
       const info = document.createElement('div');
-      info.append(textNode('strong', app.name), textNode('small', new Date(app.createdAt).toLocaleString('pt-BR')));
+      info.append(textNode('strong', app.displayName || app.name), textNode('small', new Date(app.createdAt).toLocaleString('pt-BR')));
       if (app.databaseIds?.length) {
         const missing = app.databaseIds.filter(id => !databases.some(db => db.id === id));
         const connected = app.databaseIds.filter(id => !missing.includes(id))
@@ -609,12 +683,14 @@ async function loadApps() {
       const copyButton = textNode('button', 'Copiar URL'); copyButton.type = 'button';
       copyButton.addEventListener('click', () => copy(app.url, copyButton));
       const open = textNode('a', 'Abrir'); open.href = app.url; open.target = '_blank'; open.rel = 'noopener';
+      const rename = textNode('button', 'Renomear'); rename.type = 'button';
+      rename.addEventListener('click', () => renameCard('app', app, rename));
       const remove = textNode('button', 'Apagar site', 'danger-button'); remove.type = 'button';
       remove.addEventListener('click', async () => {
-        if (!confirm(`Apagar o site "${app.name}"? O link deixará de funcionar. Esta ação não pode ser desfeita.`)) return;
+        if (!await confirmAction('Apagar site?', `"${app.displayName || app.name}" será excluído e seu link deixará de funcionar. Esta ação não pode ser desfeita.`, 'Apagar site', true)) return;
         setBusy(remove);
         try { await api(`/api/apps/${app.id}`, { method: 'DELETE' }); await loadApps(); }
-        catch (error) { alert(error.message); }
+        catch (error) { await showNotice(error.message); }
         finally { clearBusy(remove); }
       });
       const update = textNode('details', '', 'sql-update');
@@ -660,7 +736,7 @@ async function loadApps() {
         finally { clearBusy(updateButton, updateStatus, updateForm); }
       });
       update.append(updateSummary, updateForm);
-      actions.append(copyButton, open, remove); head.append(info, actions); record.append(head, update);
+      actions.append(copyButton, open, rename, remove); head.append(info, actions); record.append(head, update);
       appsList.append(record);
     }
   } catch (error) { appsList.textContent = error.message; }
@@ -741,7 +817,7 @@ $('#database-form').addEventListener('submit', async event => {
   if (uploadForm.getAttribute('aria-busy') === 'true') return;
   const file = $('#database-file').files[0]; if (!file) return;
   if (databases.some(db => db.name === file.name) &&
-      !confirm(`Já existe um banco chamado "${file.name}". Um novo envio criará outro banco, com endereço e chave diferentes. Deseja criar outro?`)) return;
+      !await confirmAction('Criar outro banco?', `Já existe um banco com o arquivo "${file.name}". Um novo envio criará outro banco, com endereço e chave diferentes.`, 'Criar outro')) return;
   const button = uploadForm.querySelector('button[type=submit]');
   const status = $('#database-status');
   setBusy(button, status, 'Enviando e organizando seus dados… Isso pode levar alguns minutos.', uploadForm);
@@ -763,7 +839,7 @@ $('#empty-database-form').addEventListener('submit', async event => {
   if (form.getAttribute('aria-busy') === 'true') return;
   const name = $('#empty-database-name').value.trim();
   if (databases.some(db => db.name === name) &&
-      !confirm(`Já existe um banco chamado "${name}". Criar outro dará a ele um endereço e uma chave diferentes. Deseja continuar?`)) return;
+      !await confirmAction('Criar outro banco?', `Já existe um banco chamado "${name}". O novo banco terá endereço e chave diferentes.`, 'Criar outro')) return;
   const button = form.querySelector('button[type=submit]');
   const status = $('#empty-database-status');
   setBusy(button, status, 'Criando seu espaço de dados…', form);
@@ -788,7 +864,7 @@ $('#upload-form').addEventListener('submit', async event => {
   const file = $('#zip-file').files[0]; if (!file) return;
   const siteName = file.name.replace(/\.zip$/i, '');
   if (publishedAppNames.has(siteName) &&
-      !confirm(`Já existe um site chamado "${siteName}". Um novo envio criará outro site, com outro link. Deseja publicar outra cópia?`)) return;
+      !await confirmAction('Publicar outra cópia?', `Já existe um site chamado "${siteName}". O novo envio criará outro site, com outro link.`, 'Publicar cópia')) return;
   const button = uploadForm.querySelector('button[type=submit]');
   const status = $('#upload-status');
   setBusy(button, status, 'Enviando e validando o ZIP…', uploadForm);

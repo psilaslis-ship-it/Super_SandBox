@@ -487,11 +487,20 @@ async function authRoute(req, res, pathname) {
 
 function publicDatabase(meta) {
   return {
-    id: meta.id, name: meta.name, createdAt: meta.createdAt,
+    id: meta.id, name: meta.name, displayName: meta.displayName || meta.name, createdAt: meta.createdAt,
     kind: meta.kind || 'json', source: meta.source || 'legacy', summary: meta.summary || null,
     url: databaseUrl(meta.id),
     keys: meta.keys.map(({ id, label, permission, createdAt, sealedToken }) => ({ id, label, permission, createdAt, canReveal: !!sealedToken })),
   };
+}
+
+function displayNameFrom(body) {
+  const input = parseJson(body);
+  const displayName = input && typeof input === 'object' ? input.displayName : undefined;
+  if (typeof displayName !== 'string' || !displayName.trim() || displayName.trim().length > 100) {
+    throw new HttpError(400, 'Informe um nome de exibição de até 100 caracteres.');
+  }
+  return displayName.trim();
 }
 
 async function getDatabase(id) {
@@ -651,6 +660,16 @@ async function databaseManagement(req, res, pathname, session) {
   const { dir, meta } = await getDatabase(id);
   if (action === 'sql' && !keyId && req.method === 'POST') return updateMysqlSchema(req, res, meta);
   if (!action && req.method === 'GET') return json(res, 200, publicDatabase(meta));
+  if (!action && req.method === 'PATCH') {
+    const displayName = displayNameFrom(await readBody(req, 65536));
+    return withDbLock(id, async () => {
+      const fresh = (await getDatabase(id)).meta;
+      if (displayName === fresh.name) delete fresh.displayName;
+      else fresh.displayName = displayName;
+      await atomicWrite(path.join(dir, 'meta.json'), JSON.stringify(fresh, null, 2));
+      return json(res, 200, publicDatabase(fresh));
+    });
+  }
   if (!action && req.method === 'DELETE') {
     return withDbLock(id, async () => {
       await getDatabase(id);
@@ -951,6 +970,17 @@ async function handler(req, res, listener = 'portal') {
       requireOwner(req);
       checkOrigin(req, host);
       if (req.method === 'PUT') return updateApp(req, res, appManagement[1]);
+      if (req.method === 'PATCH') {
+        const displayName = displayNameFrom(await readBody(req, 65536));
+        return withDbLock('catalog:apps', async () => {
+          const id = appManagement[1];
+          const fresh = (await getApp(id)).meta;
+          if (displayName === fresh.name) delete fresh.displayName;
+          else fresh.displayName = displayName;
+          await atomicWrite(path.join(appsDir, id, 'meta.json'), JSON.stringify(fresh, null, 2));
+          return json(res, 200, { ...fresh, displayName: fresh.displayName || fresh.name, url: appUrl(id) });
+        });
+      }
       if (req.method !== 'DELETE') throw new HttpError(405, 'Método não permitido.');
       return withDbLock('catalog:apps', async () => {
         await getApp(appManagement[1]);

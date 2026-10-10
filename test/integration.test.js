@@ -102,6 +102,20 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     assert.equal(database.url, `${portalOrigin}/api/db-access/${database.id}`);
     assert.equal(database.keys[0].canReveal, true);
     assert.equal(JSON.stringify(database).includes('sealedToken'), false);
+    const renameDbPath = `/api/databases/${database.id}`;
+    const renameHeaders = { Cookie: ownerCookie, Origin: portalOrigin, 'Content-Type': 'application/json' };
+    assert.equal((await http(port, 'localhost', 'PATCH', renameDbPath, '{}')).status, 401);
+    assert.equal((await http(port, 'localhost', 'PATCH', renameDbPath, '{}',
+      { ...renameHeaders, Origin: `http://evil.localhost:${port}` })).status, 403);
+    assert.equal((await http(port, 'localhost', 'PATCH', renameDbPath,
+      JSON.stringify({ displayName: '   ' }), renameHeaders)).status, 400);
+    const renamedDb = await http(port, 'localhost', 'PATCH', renameDbPath,
+      JSON.stringify({ displayName: '  Controle diário  ' }), renameHeaders);
+    assert.equal(renamedDb.status, 200, renamedDb.body);
+    assert.equal(JSON.parse(renamedDb.body).displayName, 'Controle diário');
+    assert.equal(JSON.parse(renamedDb.body).name, database.name);
+    assert.equal(JSON.parse(renamedDb.body).url, database.url);
+    assert.equal(JSON.parse(await readFile(path.join(dataDir, 'databases', database.id, 'meta.json'), 'utf8')).name, database.name);
     const revealInitialPath = `/api/databases/${database.id}/keys/${database.keys[0].id}/reveal`;
     assert.equal((await http(port, 'localhost', 'POST', revealInitialPath)).status, 401);
     assert.equal((await http(port, 'localhost', 'POST', revealInitialPath, null,
@@ -207,6 +221,16 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
       'site/app.js': `const banco = '${database.url}';`,
     }), ownerCookie);
     assert.equal(app.status, 201, JSON.stringify(app.body));
+    const renameAppPath = `/api/apps/${app.body.id}`;
+    assert.equal((await http(port, 'localhost', 'PATCH', renameAppPath, '{}')).status, 401);
+    assert.equal((await http(port, 'localhost', 'PATCH', renameAppPath, '{}',
+      { ...renameHeaders, Origin: `http://evil.localhost:${port}` })).status, 403);
+    const renamedApp = await http(port, 'localhost', 'PATCH', renameAppPath,
+      JSON.stringify({ displayName: 'Painel operacional' }), renameHeaders);
+    assert.equal(renamedApp.status, 200, renamedApp.body);
+    assert.equal(JSON.parse(renamedApp.body).name, app.body.name);
+    assert.equal(JSON.parse(renamedApp.body).displayName, 'Painel operacional');
+    assert.equal(JSON.parse(renamedApp.body).url, app.body.url);
     const appHost = `${app.body.id}.localhost`;
     assert.equal((await http(port, appHost, 'GET', '/')).headers.location, '/index.html');
     assert.equal((await http(port, appHost, 'GET', '/index.html')).body, '<h1>Site original</h1><script src="app.js"></script>');
@@ -243,11 +267,13 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
     }), ownerCookie, 'PUT');
     assert.equal(updated.status, 200, JSON.stringify(updated.body));
     assert.equal(updated.body.url, app.body.url);
+    assert.equal(updated.body.displayName, 'Painel operacional');
     assert.equal((await http(port, appHost, 'GET', '/index.html')).body,
       `<h1>Site atualizado</h1><script>const banco = '${database.url}';</script>`);
     const appsAfterUpdate = JSON.parse((await http(port, 'localhost', 'GET', '/api/apps', null,
       { Cookie: ownerCookie })).body);
     assert.equal(appsAfterUpdate.length, 2);
+    assert.equal(appsAfterUpdate.find(item => item.id === app.body.id).displayName, 'Painel operacional');
     assert.deepEqual(appsAfterUpdate.find(item => item.id === app.body.id).databaseIds, [database.id]);
     assert.equal((await http(port, 'localhost', 'DELETE', `/api/apps/${badSite.body.id}`, null,
       { Cookie: ownerCookie, Origin: portalOrigin })).status, 200);
@@ -277,6 +303,12 @@ test('banco separado exige chave e site ZIP não expõe o JSON', async () => {
       { Origin: portalOrigin, 'Content-Type': 'application/json' });
     assert.equal(relogin.status, 200);
     const newOwnerCookie = relogin.headers['set-cookie'][0].split(';')[0];
+    const databasesAfterRestart = JSON.parse((await http(port, 'localhost', 'GET', '/api/databases', null,
+      { Cookie: newOwnerCookie })).body);
+    assert.equal(databasesAfterRestart.find(item => item.id === database.id).displayName, 'Controle diário');
+    const appsAfterRestart = JSON.parse((await http(port, 'localhost', 'GET', '/api/apps', null,
+      { Cookie: newOwnerCookie })).body);
+    assert.equal(appsAfterRestart.find(item => item.id === app.body.id).displayName, 'Painel operacional');
     assert.equal(JSON.parse((await http(port, 'localhost', 'POST', revealInitialPath, null,
       { Cookie: newOwnerCookie, Origin: portalOrigin })).body).token, token);
   } finally { await stop(); await rm(dataDir, { recursive: true, force: true }); }

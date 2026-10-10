@@ -13,9 +13,10 @@ button { cursor: pointer; }
 a { color: inherit; }
 .topbar { height: 78px; padding: 0 clamp(20px, 5vw, 76px); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #58333a; background: #210e15d9; }
 .brand { display: flex; gap: 12px; align-items: center; font-size: 19px; font-weight: 800; letter-spacing: -.03em; }
-.brand-mark { width: 36px; height: 36px; }
+.brand-mark { width: 40px; height: 40px; filter: drop-shadow(0 5px 12px #0006); }
 main { max-width: 1140px; margin: auto; padding: 56px 24px 90px; }
 .intro { max-width: 800px; margin-bottom: 42px; }
+.intro-mark { display: block; width: 68px; height: 68px; margin-bottom: 20px; filter: drop-shadow(0 12px 24px #0008); }
 .eyebrow, .section-number { color: #ffd15a; letter-spacing: .12em; font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffcd3e; box-shadow: 0 0 14px #ffcd3e; margin-right: 7px; }
 h1 { margin: 16px 0 18px; font-size: clamp(46px, 7vw, 78px); line-height: 1.05; letter-spacing: -.065em; }
@@ -91,11 +92,26 @@ select { width: 100%; max-width: 470px; }
 textarea { display: block; width: 100%; min-height: 310px; margin: 16px 0; resize: vertical; line-height: 1.5; font-size: 14px; }
 .prompt-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .empty { margin: 0; padding: 16px 4px; color: #c4a9a2; }
-.key-dialog { width: min(560px, calc(100% - 30px)); padding: 28px; border: 1px solid #9e5b53; border-radius: 16px; background: #2b1920; color: #fff7ee; box-shadow: 0 22px 70px #0009; }
-.key-dialog::backdrop { background: #090608cf; }
-.key-dialog h2 { margin: 10px 0; }
-.key-dialog p { color: #d3b9af; }
-.dialog-actions { display: flex; justify-content: flex-end; margin-top: 22px; }
+.portal-dialog { width: min(520px, calc(100% - 28px)); max-height: calc(100dvh - 28px); padding: clamp(22px, 5vw, 36px); border: 1px solid #9a5755; border-radius: 24px; background: radial-gradient(circle at 95% 0%, #64312e 0, transparent 48%), linear-gradient(150deg, #3a2026, #21151b 80%); color: #fff7ee; box-shadow: 0 30px 90px #000b, inset 0 1px #ffffff1a; font-family: inherit; }
+.portal-dialog::backdrop { background: #0c080bcf; backdrop-filter: blur(7px); }
+.portal-dialog h2 { margin: 10px 0 8px; font-size: clamp(25px, 4vw, 30px); letter-spacing: -.035em; line-height: 1.13; overflow-wrap: anywhere; }
+.portal-dialog p { color: #dbc1b8; line-height: 1.55; overflow-wrap: anywhere; }
+.dialog-mark { display: grid; place-items: center; width: 54px; height: 54px; margin-bottom: 24px; border: 1px solid #f0b94588; border-radius: 16px; background: linear-gradient(145deg, #624121, #3d271e); color: #ffd35b; font-size: 30px; font-weight: 800; box-shadow: 0 12px 22px #0004, inset 0 1px #fff3; }
+.portal-dialog[data-intent="danger"] .dialog-mark { border-color: #ec7f7f99; background: linear-gradient(145deg, #81383a, #45232a); color: #ffc2bb; }
+.portal-dialog[data-intent="danger"] .dialog-primary { background: #b83e42; color: #fff; }
+.portal-dialog[data-intent="danger"] .dialog-primary:hover { background: #d45455; }
+.dialog-mark-key { font-size: 29px; }
+.portal-dialog form { margin-top: 22px; }
+.portal-dialog label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 750; color: #f3decf; }
+.portal-dialog input[type=text] { display: block; width: 100%; }
+.dialog-error { margin: 8px 0 0; color: #ffb8b8 !important; font-size: 13px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 26px; }
+.dialog-actions button { min-height: 44px; padding: 10px 18px; border-radius: 10px; font-weight: 800; }
+.dialog-primary { border: 1px solid #ffe389; background: #ffcf4a; color: #3d1b13; }
+.dialog-primary:hover { background: #ffe28b; color: #2f120e; }
+.portal-dialog .copy-field { margin-top: 20px; }
+.portal-dialog .copy-field code { max-height: 130px; overflow: auto; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid #ffdf70; outline-offset: 3px; }
 footer { max-width: 1140px; margin: auto; padding: 0 24px 40px; color: #a58280; font-size: 13px; }
 footer span { padding: 0 6px; }
 @media (max-width: 700px) {
@@ -110,4 +126,6 @@ footer span { padding: 0 6px; }
   .file-drop small { width: 100%; padding-left: 58px; }
   .record-actions { justify-content: flex-start; }
   .key-item { align-items: flex-start; flex-direction: column; }
+  .dialog-actions { flex-direction: column-reverse; }
+  .dialog-actions button { width: 100%; }
 }

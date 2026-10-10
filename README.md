@@ -35,6 +35,8 @@ O ZIP **não deve conter** a chave, o JSON nem a pasta `db_global`. O site deve 
 
 Cada importação de JSON cria um banco novo, com endereço e chave próprios. Repetir o envio do mesmo arquivo não atualiza o banco anterior. O portal avisa quando já existe um banco ou site com o mesmo nome. Ao publicar ou atualizar um site, ele procura referências literais à API de bancos deste portal em arquivos HTML e JavaScript do ZIP. Se encontrar um endereço de banco ausente, mostra um aviso no cartão; o envio continua e os arquivos do site não são alterados. Essa verificação é informativa: endereços montados dinamicamente ou guardados em outros tipos de arquivo podem não aparecer. Confira a configuração da conexão no próprio site.
 
+Use **Renomear** no cartão de um banco ou site para mudar apenas o título exibido no portal. O nome original, os dados, os arquivos, as chaves e os endereços permanecem iguais. Para voltar ao título original, renomeie o cartão usando o nome anterior.
+
 ## Dados importados
 
 O importador lê o JSON em fluxo e preserva os valores existentes. Cada propriedade da raiz vira um grupo de dados: arrays geram um registro por item; objetos e valores únicos geram um registro. Arrays ou valores na própria raiz também são aceitos. O portal registra o formato original da raiz e a ordem dos grupos para exportar novamente um JSON equivalente. O download pode refletir edições posteriores feitas pelo site.
